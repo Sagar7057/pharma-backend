@@ -1,0 +1,1 @@
+"""PharmaPricing Backend - FastAPI Application"""
