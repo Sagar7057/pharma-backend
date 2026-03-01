@@ -12,21 +12,24 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Database URL
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    f"postgresql://{os.getenv('DB_USER', 'postgres')}:{os.getenv('DB_PASSWORD', 'password')}@{os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', 5432)}/{os.getenv('DB_NAME', 'pharmapricing_dev')}"
-)
+DATABASE_URL = os.getenv("DATABASE_URL")
+
 
 # Create engine
+_use_nullpool = os.getenv("APP_ENV") == "testing"
+_engine_kwargs = dict(
+    echo=os.getenv("SQL_ECHO", "False") == "True",
+    pool_pre_ping=True,
+)
+if _use_nullpool:
+    from sqlalchemy.pool import NullPool as _NullPool
+    _engine_kwargs["poolclass"] = _NullPool
+else:
+    _engine_kwargs["pool_size"] = 5
+    _engine_kwargs["max_overflow"] = 10
+
 try:
-    engine = create_engine(
-        DATABASE_URL,
-        echo=os.getenv("SQL_ECHO", "False") == "True",
-        pool_size=20,
-        max_overflow=0,
-        pool_pre_ping=True,
-        poolclass=NullPool if os.getenv("APP_ENV") == "testing" else None
-    )
+    engine = create_engine(DATABASE_URL, **_engine_kwargs)
     logger.info("✅ Database engine created")
 except Exception as e:
     logger.error(f"❌ Failed to create database engine: {e}")
