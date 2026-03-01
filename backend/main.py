@@ -48,8 +48,38 @@ app = FastAPI(
 )
 
 # Add CORS middleware
-_raw_origins = os.getenv("FRONTEND_URL", "http://localhost:3000")
-_allowed_origins = list(set([o.strip() for o in _raw_origins.split(",") if o.strip()] + ["http://localhost:3000", "http://localhost:5173"]))
+# Supports comma-separated values in CORS_ORIGINS (preferred) or FRONTEND_URL.
+def _parse_allowed_origins() -> list[str]:
+    raw_origins = os.getenv("CORS_ORIGINS") or os.getenv("FRONTEND_URL", "")
+    origins = []
+    for origin in raw_origins.split(","):
+        origin = origin.strip()
+        if not origin:
+            continue
+        # Normalize trailing slash to avoid exact-match failures in CORS checks.
+        origins.append(origin.rstrip("/"))
+
+    # Local development defaults
+    origins.extend([
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+    ])
+
+    # Deduplicate while preserving order
+    deduped = []
+    seen = set()
+    for origin in origins:
+        if origin not in seen:
+            seen.add(origin)
+            deduped.append(origin)
+    return deduped
+
+
+_allowed_origins = _parse_allowed_origins()
+logger.info(f"CORS allowed origins: {_allowed_origins}")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
