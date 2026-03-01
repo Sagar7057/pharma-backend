@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("🚀 PharmaPricing API Server Starting...")
     logger.info(f"Environment: {os.getenv('APP_ENV', 'development')}")
-    logger.info(f"Database: {os.getenv('DATABASE_URL', 'Not configured')}")
+    logger.info(f"Database configured: {'Yes' if os.getenv('DATABASE_URL') else 'No'}")
     yield
     # Shutdown
     logger.info("🛑 PharmaPricing API Server Shutting Down...")
