@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y \
 
 COPY backend/requirements.txt .
 RUN pip install --upgrade pip
-pip install -r requirements.txt --upgrade --force-reinstall
+RUN pip install -r requirements.txt --upgrade --force-reinstall
 
 # Copy only the backend folder contents into WORKDIR
 COPY backend/ .
