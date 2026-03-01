@@ -1,0 +1,23 @@
+# Railway.app Configuration
+# Place this file at root of repository as railway.toml
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "backend/Dockerfile"
+
+[deploy]
+startCommand = "uvicorn main:app --host 0.0.0.0 --port $PORT"
+
+[environment]
+# Database
+DATABASE_URL = "${{Postgres.DATABASE_URL}}"
+
+# JWT
+JWT_SECRET = "${{SECRET_JWT}}"
+
+# Environment
+ENVIRONMENT = "production"
+DEBUG = "false"
+
+# CORS
+CORS_ORIGINS = "${{FRONTEND_URL}}"
