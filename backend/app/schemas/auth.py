@@ -35,7 +35,7 @@ class SignupRequest(BaseModel):
         return v
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "email": "user@pharmapricing.com",
                 "password": "SecurePass123!",
@@ -53,7 +53,7 @@ class LoginRequest(BaseModel):
     password: str = Field(..., min_length=1)
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "email": "user@pharmapricing.com",
                 "password": "SecurePass123!"
@@ -73,7 +73,7 @@ class UserResponse(BaseModel):
     
     class Config:
         from_attributes = True
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "id": 1,
                 "email": "user@pharmapricing.com",
@@ -92,7 +92,7 @@ class SignupResponse(BaseModel):
     data: dict = Field(..., description="Contains token and user")
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "success": True,
                 "data": {
@@ -112,7 +112,7 @@ class LoginResponse(BaseModel):
     data: dict = Field(..., description="Contains token and expiry")
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "success": True,
                 "data": {
@@ -137,7 +137,7 @@ class ErrorResponse(BaseModel):
     error: dict = Field(..., description="Contains error code and message")
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "error": {
                     "code": "VALIDATION_ERROR",
