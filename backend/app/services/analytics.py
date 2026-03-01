@@ -249,9 +249,12 @@ class AnalyticsService:
             # Top brands by quote count
             top_result = db.execute(
                 text("""
-                    SELECT b.brand_name, COUNT(q.id) as quote_count, SUM(q.total_amount) as revenue
+                    SELECT b.brand_name,
+                           COUNT(DISTINCT q.id) as quote_count,
+                           COALESCE(SUM(qli.line_total), 0) as revenue
                     FROM brands b
-                    LEFT JOIN quotes q ON b.id = q.id
+                    LEFT JOIN quote_line_items qli ON b.id = qli.brand_id
+                    LEFT JOIN quotes q ON qli.quote_id = q.id AND q.user_id = :user_id
                     WHERE b.user_id = :user_id AND b.is_active = true
                     GROUP BY b.id, b.brand_name
                     ORDER BY quote_count DESC
