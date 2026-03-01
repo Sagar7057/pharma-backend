@@ -78,11 +78,14 @@ def _parse_allowed_origins() -> list[str]:
 
 
 _allowed_origins = _parse_allowed_origins()
+_cors_origin_regex = os.getenv("CORS_ORIGIN_REGEX", r"^https://.*\.vercel\.app$")
 logger.info(f"CORS allowed origins: {_allowed_origins}")
+logger.info(f"CORS origin regex: {_cors_origin_regex}")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
+    allow_origin_regex=_cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
