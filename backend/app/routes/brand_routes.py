@@ -215,10 +215,10 @@ async def import_brands_csv(
     """
     try:
         # Validate file type
-        if not file.filename.endswith(('.csv', '.xlsx')):
+        if not file.filename.endswith('.csv'):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Only CSV and XLSX files are supported"
+                detail="Only CSV files are supported"
             )
         
         # Read file content
