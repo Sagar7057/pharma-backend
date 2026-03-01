@@ -47,6 +47,22 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+
+@app.middleware("http")
+async def disable_api_caching(request, call_next):
+    """
+    Prevent stale API responses from browser/CDN/proxy caches.
+    """
+    response = await call_next(request)
+
+    if request.url.path.startswith("/api") or request.url.path in {"/health", "/"}:
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        response.headers["Surrogate-Control"] = "no-store"
+
+    return response
+
 # Add CORS middleware
 # Supports comma-separated values in CORS_ORIGINS (preferred) or FRONTEND_URL.
 def _parse_allowed_origins() -> list[str]:
