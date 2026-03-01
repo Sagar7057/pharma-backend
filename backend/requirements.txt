@@ -1,21 +1,33 @@
-# PharmaPricing Backend - Python Dependencies
+# PharmaPricing Backend Requirements
+# Python 3.9+
 
 # Web Framework
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
-pydantic==2.5.0
-pydantic[email]==2.5.0
+python-multipart==0.0.6
 
 # Database
 sqlalchemy==2.0.23
 psycopg2-binary==2.9.9
-alembic==1.12.1
+alembic==1.13.1
 
 # Authentication & Security
-PyJWT==2.8.1
+python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
-bcrypt==4.1.1
-python-multipart==0.0.6
+bcrypt==4.1.2
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# CORS & Middleware
+python-cors==1.0.1
+starlette==0.27.0
+
+# Data Validation
+email-validator==2.1.0
+
+# Async Support
+httpx==0.25.2
+aiofiles==23.2.1
 
 # Environment Variables
 python-dotenv==1.0.0
@@ -26,13 +38,23 @@ python-json-logger==2.0.7
 # Testing
 pytest==7.4.3
 pytest-asyncio==0.21.1
-httpx==0.25.1
+httpx==0.25.2
+
+# Optional: Redis for caching
+redis==5.0.1
+
+# Optional: Email
+python-sendgrid==6.10.0
+
+# Optional: PDF Generation
+reportlab==4.0.7
+weasyprint==59.3
+
+# Utilities
+python-dateutil==2.8.2
+pytz==2023.3
 
 # Development
-black==23.12.0
+black==23.12.1
 flake8==6.1.0
-pylint==3.0.3
 isort==5.13.2
-
-# Production
-gunicorn==21.2.0
