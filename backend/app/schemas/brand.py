@@ -80,7 +80,7 @@ class CSVImportRequest(BaseModel):
     filename: str
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "filename": "brands.csv"
             }
