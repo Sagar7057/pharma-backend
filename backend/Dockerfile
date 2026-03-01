@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Make start.sh executable
+# chmod AFTER copying files
 RUN chmod +x start.sh
 
 EXPOSE 3000
@@ -22,5 +22,4 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:${PORT:-3000}/health || exit 1
 
-# Use shell form so $PORT gets expanded
 CMD ["sh", "-c", "./start.sh"]
