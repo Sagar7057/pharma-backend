@@ -4,7 +4,7 @@ Business logic for brand management
 """
 
 import logging
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Union
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 import csv
@@ -17,7 +17,7 @@ class BrandService:
     
     @staticmethod
     async def create_brand(
-        user_id: int,
+        user_id: Union[str, int],
         brand_name: str,
         manufacturer: str,
         mrp: float,
@@ -38,7 +38,7 @@ class BrandService:
             result = db.execute(
                 text("""
                     SELECT id FROM brands 
-                    WHERE user_id = :user_id 
+                    WHERE user_id = CAST(:user_id AS UUID) 
                     AND brand_name = :brand_name 
                     AND strength = :strength 
                     AND packing = :packing
@@ -64,7 +64,7 @@ class BrandService:
                     (user_id, brand_name, manufacturer, mrp, cost_price, 
                      default_margin, therapeutic_category, salt_name, 
                      strength, packing, gtin_code, is_active, created_at, updated_at)
-                    VALUES (:user_id, :brand_name, :manufacturer, :mrp, :cost_price,
+                    VALUES (CAST(:user_id AS UUID), :brand_name, :manufacturer, :mrp, :cost_price,
                            :default_margin, :therapeutic_category, :salt_name,
                            :strength, :packing, :gtin_code, true, 
                            CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
@@ -89,7 +89,7 @@ class BrandService:
             result = db.execute(
                 text("""
                     SELECT id FROM brands 
-                    WHERE user_id = :user_id 
+                    WHERE user_id = CAST(:user_id AS UUID) 
                     AND brand_name = :brand_name 
                     ORDER BY id DESC LIMIT 1
                 """),
@@ -107,7 +107,7 @@ class BrandService:
             raise Exception("Failed to create brand")
     
     @staticmethod
-    async def get_brand(user_id: int, brand_id: int, db: Session) -> Dict[str, Any]:
+    async def get_brand(user_id: Union[str, int], brand_id: int, db: Session) -> Dict[str, Any]:
         """Get single brand"""
         try:
             result = db.execute(
@@ -117,7 +117,7 @@ class BrandService:
                            is_nppa_controlled, nppa_margin_limit, salt_name, 
                            strength, packing, gtin_code, is_active, created_at, updated_at
                     FROM brands 
-                    WHERE id = :brand_id AND user_id = :user_id
+                    WHERE id = :brand_id AND user_id = CAST(:user_id AS UUID)
                 """),
                 {"brand_id": brand_id, "user_id": user_id}
             )
@@ -153,7 +153,7 @@ class BrandService:
     
     @staticmethod
     async def list_brands(
-        user_id: int,
+        user_id: Union[str, int],
         search: Optional[str],
         sort_by: Optional[str],
         limit: int,
@@ -163,7 +163,7 @@ class BrandService:
         """List brands with filtering and pagination"""
         try:
             # Build query
-            where_clause = "WHERE user_id = :user_id AND is_active = true"
+            where_clause = "WHERE user_id = CAST(:user_id AS UUID) AND is_active = true"
             params = {"user_id": user_id, "limit": limit, "offset": offset}
             
             if search:
@@ -235,7 +235,7 @@ class BrandService:
     
     @staticmethod
     async def update_brand(
-        user_id: int,
+        user_id: Union[str, int],
         brand_id: int,
         update_data: Dict[str, Any],
         db: Session
@@ -263,7 +263,7 @@ class BrandService:
                 text(f"""
                     UPDATE brands 
                     SET {', '.join(set_clause)}
-                    WHERE id = :brand_id AND user_id = :user_id
+                    WHERE id = :brand_id AND user_id = CAST(:user_id AS UUID)
                 """),
                 params
             )
@@ -276,14 +276,14 @@ class BrandService:
             raise Exception("Failed to update brand")
     
     @staticmethod
-    async def delete_brand(user_id: int, brand_id: int, db: Session) -> bool:
+    async def delete_brand(user_id: Union[str, int], brand_id: int, db: Session) -> bool:
         """Soft delete brand"""
         try:
             db.execute(
                 text("""
                     UPDATE brands 
                     SET is_active = false, updated_at = CURRENT_TIMESTAMP
-                    WHERE id = :brand_id AND user_id = :user_id
+                    WHERE id = :brand_id AND user_id = CAST(:user_id AS UUID)
                 """),
                 {"brand_id": brand_id, "user_id": user_id}
             )
@@ -296,7 +296,7 @@ class BrandService:
     
     @staticmethod
     async def import_csv(
-        user_id: int,
+        user_id: Union[str, int],
         csv_content: str,
         db: Session
     ) -> Dict[str, Any]:
@@ -339,7 +339,7 @@ class BrandService:
                     result = db.execute(
                         text("""
                             SELECT id FROM brands 
-                            WHERE user_id = :user_id AND brand_name = :brand_name
+                            WHERE user_id = CAST(:user_id AS UUID) AND brand_name = :brand_name
                         """),
                         {"user_id": user_id, "brand_name": brand_name}
                     )
@@ -353,7 +353,7 @@ class BrandService:
                             INSERT INTO brands 
                             (user_id, brand_name, manufacturer, mrp, cost_price, 
                              default_margin, is_active, created_at, updated_at)
-                            VALUES (:user_id, :brand_name, :manufacturer, :mrp, :cost_price,
+                            VALUES (CAST(:user_id AS UUID), :brand_name, :manufacturer, :mrp, :cost_price,
                                    :default_margin, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                         """),
                         {
