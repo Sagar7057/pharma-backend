@@ -138,7 +138,7 @@ class AuthService:
         return {
             "token": token,
             "user": {
-                "id": user_id,
+                "id": str(user_id) if user_id is not None else None,
                 "email": email,
                 "fullName": full_name,
                 "companyName": company_name
@@ -198,14 +198,14 @@ class AuthService:
             "token": token,
             "expiresIn": "7d",
             "user": {
-                "id": user_id,
+                "id": str(user_id) if user_id is not None else None,
                 "email": user_email,
                 "fullName": full_name
             }
         }
     
     @staticmethod
-    async def get_profile(user_id: int, db: Session) -> dict:
+    async def get_profile(user_id: str, db: Session) -> dict:
         """
         Get user profile
         
@@ -220,7 +220,7 @@ class AuthService:
             result = db.execute(
                 text("""
                     SELECT id, email, full_name, company_name, phone, city, state, created_at
-                    FROM users WHERE id = :user_id
+                    FROM users WHERE id = CAST(:user_id AS UUID)
                 """),
                 {"user_id": user_id}
             )
@@ -235,7 +235,7 @@ class AuthService:
         user_id, email, full_name, company_name, phone, city, state, created_at = user
         
         return {
-            "id": user_id,
+            "id": str(user_id) if user_id is not None else None,
             "email": email,
             "fullName": full_name,
             "companyName": company_name,
