@@ -12,7 +12,7 @@ from app.database import get_db
 from app.services.export import ExportService
 from app.schemas.export import (
     QuotePDFRequest, QuoteEmailRequest, 
-    QuoteTemplateCreate, QuoteTemplateUpdate
+    QuoteTemplateCreate, QuoteTemplateUpdate, QuoteERPExportRequest
 )
 from app.routes.auth_routes import get_current_user
 
@@ -94,6 +94,39 @@ async def send_quote_email(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to send email"
+        )
+
+@router.post("/quotes/{quote_id}/export-erp")
+async def export_quote_erp(
+    quote_id: int,
+    request: QuoteERPExportRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Export quote as ERP payload (JSON-ready waterfall snapshot)."""
+    try:
+        result = await ExportService.export_quote_erp_payload(
+            user_id=current_user["user_id"],
+            quote_id=quote_id,
+            destination=request.destination,
+            export_format=request.format,
+            db=db
+        )
+
+        return {
+            "success": True,
+            "data": result
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error exporting ERP payload: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to export ERP payload"
         )
 
 # ============================================
