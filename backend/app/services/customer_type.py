@@ -91,28 +91,35 @@ class CustomerTypeService:
     async def list_customer_types(user_id: int, db: Session) -> List[Dict[str, Any]]:
         """List all customer types for user"""
         try:
-            result = db.execute(
-                text("""
-                    SELECT id, user_id, name, default_margin, description, is_predefined, created_at
-                    FROM customer_types 
-                    WHERE user_id = :user_id
-                    ORDER BY is_predefined DESC, name ASC
-                """),
-                {"user_id": user_id}
-            )
-            
-            types = []
-            for row in result:
-                types.append({
-                    "id": row[0],
-                    "user_id": row[1],
-                    "name": row[2],
-                    "default_margin": float(row[3]) if row[3] else 0,
-                    "description": row[4],
-                    "is_predefined": row[5],
-                    "created_at": row[6]
-                })
-            
+            def _fetch_types() -> List[Dict[str, Any]]:
+                result = db.execute(
+                    text("""
+                        SELECT id, user_id, name, default_margin, description, is_predefined, created_at
+                        FROM customer_types 
+                        WHERE user_id = :user_id
+                        ORDER BY is_predefined DESC, name ASC
+                    """),
+                    {"user_id": user_id}
+                )
+
+                rows = []
+                for row in result:
+                    rows.append({
+                        "id": row[0],
+                        "user_id": row[1],
+                        "name": row[2],
+                        "default_margin": float(row[3]) if row[3] else 0,
+                        "description": row[4],
+                        "is_predefined": row[5],
+                        "created_at": row[6]
+                    })
+                return rows
+
+            types = _fetch_types()
+            if not types:
+                await CustomerTypeService.init_default_types(str(user_id), db)
+                types = _fetch_types()
+
             return types
         except Exception as e:
             logger.error(f"Failed to list customer types: {e}")
