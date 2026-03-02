@@ -329,7 +329,8 @@ class AnalyticsService:
                 """),
                 {"user_id": user_id}
             )
-            avg_value = float(avg_result.scalar()) if avg_result.scalar() else 0
+            avg_value_raw = avg_result.scalar()
+            avg_value = float(avg_value_raw) if avg_value_raw is not None else 0
             
             # Repeat customers (same customer name multiple quotes)
             repeat_result = db.execute(
