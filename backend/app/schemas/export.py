@@ -47,6 +47,11 @@ class QuoteEmailRequest(BaseModel):
     message: Optional[str] = None
     include_pdf: Optional[bool] = True
 
+class QuoteERPExportRequest(BaseModel):
+    """Quote ERP export request"""
+    format: Optional[str] = Field("json", description="json or csv")
+    destination: Optional[str] = Field("generic", description="ERP destination name/type")
+
 class EmailResponse(BaseModel):
     """Email response"""
     success: bool
