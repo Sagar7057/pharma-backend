@@ -261,3 +261,127 @@ class PricingEngineService:
         except Exception as e:
             logger.error(f"Failed to get NPPA data: {e}")
             return None
+
+    @staticmethod
+    async def recommend_price(
+        user_id: int,
+        brand_id: int,
+        customer_type_id: Optional[int],
+        quantity: int,
+        current_unit_price: Optional[float],
+        channel: Optional[str],
+        region_code: Optional[str],
+        db: Session
+    ) -> Dict[str, Any]:
+        """
+        Build manual, rule-based and elasticity recommendation options.
+        This is designed as a safe MVP with deterministic fallbacks.
+        """
+        try:
+            # Base calculation from current pricing engine
+            rule_result = await PricingEngineService.calculate_price(
+                user_id=user_id,
+                brand_id=brand_id,
+                customer_type_id=customer_type_id,
+                quantity=quantity,
+                db=db
+            )
+
+            # Brand context used for caps and elasticity fallback
+            brand_row = db.execute(
+                text("""
+                    SELECT cost_price, mrp
+                    FROM brands
+                    WHERE id = :brand_id AND user_id = :user_id AND is_active = true
+                """),
+                {"brand_id": brand_id, "user_id": user_id}
+            ).fetchone()
+            if not brand_row:
+                raise ValueError("Brand not found")
+
+            cost_price = float(brand_row[0])
+            mrp = float(brand_row[1])
+            baseline_price = float(current_unit_price) if current_unit_price else float(rule_result["unit_price"])
+
+            # Optional segment elasticity (if configured)
+            try:
+                segment_row = db.execute(
+                    text("""
+                        SELECT elasticity_value, confidence_score, model_version
+                        FROM elasticity_segments
+                        WHERE is_active = true
+                          AND (user_id IS NULL OR user_id = :user_id)
+                          AND (brand_id IS NULL OR brand_id = :brand_id)
+                          AND (customer_type_id IS NULL OR customer_type_id = :customer_type_id)
+                          AND (:channel IS NULL OR channel IS NULL OR channel = :channel)
+                          AND (:region_code IS NULL OR region_code IS NULL OR region_code = :region_code)
+                          AND valid_from <= CURRENT_DATE
+                          AND (valid_until IS NULL OR valid_until >= CURRENT_DATE)
+                        ORDER BY
+                          CASE WHEN brand_id = :brand_id THEN 0 ELSE 1 END,
+                          CASE WHEN customer_type_id = :customer_type_id THEN 0 ELSE 1 END,
+                          CASE WHEN user_id = :user_id THEN 0 ELSE 1 END
+                        LIMIT 1
+                    """),
+                    {
+                        "user_id": user_id,
+                        "brand_id": brand_id,
+                        "customer_type_id": customer_type_id,
+                        "channel": channel,
+                        "region_code": region_code
+                    }
+                ).fetchone()
+            except Exception:
+                # Backward-compatible fallback if elasticity table is not deployed yet.
+                segment_row = None
+
+            elasticity_value = float(segment_row[0]) if segment_row and segment_row[0] is not None else -1.0
+            confidence_score = float(segment_row[1]) if segment_row and segment_row[1] is not None else 0.5
+            model_version = str(segment_row[2]) if segment_row and segment_row[2] else "elast_baseline_v1"
+
+            # A small downward nudge for negative elasticity to improve conversion
+            # while preserving margin and MRP safety.
+            elasticity_price = baseline_price * (1.0 - min(0.05, max(0.0, abs(elasticity_value) * 0.01)))
+            elasticity_price = max(cost_price, min(elasticity_price, mrp))
+            expected_qty_change_pct = abs(elasticity_value) * ((baseline_price - elasticity_price) / baseline_price) * 100 if baseline_price > 0 else 0.0
+            expected_qty = quantity * (1 + expected_qty_change_pct / 100)
+            expected_revenue = elasticity_price * expected_qty
+            expected_margin = (elasticity_price - cost_price) * expected_qty
+
+            options = {
+                "manual_margin": {
+                    "unit_price": round(baseline_price, 4),
+                    "margin_pct": round(((baseline_price - cost_price) / cost_price * 100) if cost_price > 0 else 0, 4)
+                },
+                "rule_based": {
+                    "unit_price": round(float(rule_result["unit_price"]), 4),
+                    "margin_pct": round(float(rule_result["margin_percentage"]), 4),
+                    "volume_discount": float(rule_result.get("volume_discount", 0))
+                },
+                "elasticity_recommended": {
+                    "unit_price": round(float(elasticity_price), 4),
+                    "expected_qty_change_pct": round(float(expected_qty_change_pct), 4),
+                    "expected_revenue": round(float(expected_revenue), 4),
+                    "expected_margin": round(float(expected_margin), 4),
+                    "elasticity_value": round(float(elasticity_value), 6),
+                    "confidence_score": round(float(confidence_score), 4),
+                    "model_version": model_version
+                }
+            }
+
+            return {
+                "brand_id": brand_id,
+                "quantity": quantity,
+                "options": options,
+                "constraints_preview": {
+                    "mrp_cap": mrp,
+                    "cost_floor": cost_price,
+                    "nppa_compliant": bool(rule_result.get("nppa_compliant", True)),
+                    "nppa_message": rule_result.get("nppa_message", "Compliant")
+                }
+            }
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to recommend price: {e}")
+            raise Exception("Failed to recommend price")
