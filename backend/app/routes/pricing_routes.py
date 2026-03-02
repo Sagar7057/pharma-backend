@@ -13,7 +13,7 @@ from app.services.pricing import PricingEngineService
 from app.schemas.customer_type import CustomerTypeCreate, CustomerTypeUpdate, CustomerTypeResponse
 from app.schemas.pricing import (
     PriceCalculationRequest, PricingRuleCreate, 
-    NPPACheckRequest
+    NPPACheckRequest, PriceRecommendRequest
 )
 from app.routes.auth_routes import get_current_user
 
@@ -217,6 +217,41 @@ async def calculate_price(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to calculate price"
+        )
+
+@router.post("/pricing/recommend")
+async def recommend_price(
+    request: PriceRecommendRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get pricing recommendations across manual/rule/elasticity modes"""
+    try:
+        result = await PricingEngineService.recommend_price(
+            user_id=current_user["user_id"],
+            brand_id=request.brand_id,
+            customer_type_id=request.customer_type_id,
+            quantity=request.quantity,
+            current_unit_price=request.current_unit_price,
+            channel=request.channel,
+            region_code=request.region_code,
+            db=db
+        )
+
+        return {
+            "success": True,
+            "data": result
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error recommending price: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to recommend price"
         )
 
 @router.post("/pricing/check-nppa")
