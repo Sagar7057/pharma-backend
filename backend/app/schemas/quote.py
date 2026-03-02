@@ -58,6 +58,7 @@ class QuoteLineItemResponse(QuoteLineItemBase):
     """Quote line item response"""
     id: int
     quote_id: int
+    brand_name: Optional[str] = None
     line_total: float
     margin_earned: float
     base_unit_price: Optional[float] = 0
