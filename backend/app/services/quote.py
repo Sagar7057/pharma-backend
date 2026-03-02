@@ -492,10 +492,10 @@ class QuoteService:
                 items_result = db.execute(
                     text("""
                         SELECT qli.id, qli.brand_id, b.brand_name, qli.quantity, qli.unit_price, qli.margin_percentage,
-                               discount, line_total, margin_earned, pricing_mode, price_basis,
-                               base_unit_price, final_unit_price, discount_amount_total, assessable_value,
-                               tax_amount_total, line_invoice_amount, net_realization_amount,
-                               margin_amount, margin_pct, nppa_compliant, confidence_score, model_version, created_at
+                               qli.discount, qli.line_total, qli.margin_earned, qli.pricing_mode, qli.price_basis,
+                               qli.base_unit_price, qli.final_unit_price, qli.discount_amount_total, qli.assessable_value,
+                               qli.tax_amount_total, qli.line_invoice_amount, qli.net_realization_amount,
+                               qli.margin_amount, qli.margin_pct, qli.nppa_compliant, qli.confidence_score, qli.model_version, qli.created_at
                         FROM quote_line_items qli
                         LEFT JOIN brands b ON b.id = qli.brand_id
                         WHERE qli.quote_id = :quote_id
