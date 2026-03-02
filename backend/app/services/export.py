@@ -345,3 +345,135 @@ class ExportService:
             db.rollback()
             logger.error(f"Failed to delete template: {e}")
             raise Exception("Failed to delete template")
+
+    @staticmethod
+    async def export_quote_erp_payload(
+        user_id: int,
+        quote_id: int,
+        destination: Optional[str] = "generic",
+        export_format: Optional[str] = "json",
+        db: Session = None
+    ) -> Dict[str, Any]:
+        """Create ERP-ready quote payload with line-level waterfall fields."""
+        try:
+            try:
+                quote = db.execute(
+                    text("""
+                        SELECT id, quote_number, customer_name, customer_email, customer_phone,
+                               quote_date, quote_expires_at, total_quote_amount, total_tax_amount,
+                               total_margin, nppa_compliance_status
+                        FROM quotes
+                        WHERE id = :quote_id AND user_id = :user_id
+                    """),
+                    {"quote_id": quote_id, "user_id": user_id}
+                ).fetchone()
+            except Exception:
+                quote = db.execute(
+                    text("""
+                        SELECT id, quote_number, customer_name, customer_email, customer_phone,
+                               quote_date, quote_expires_at, total_amount, 0 AS total_tax_amount,
+                               total_margin, 'compliant' AS nppa_compliance_status
+                        FROM quotes
+                        WHERE id = :quote_id AND user_id = :user_id
+                    """),
+                    {"quote_id": quote_id, "user_id": user_id}
+                ).fetchone()
+
+            if not quote:
+                raise ValueError("Quote not found")
+
+            try:
+                items_result = db.execute(
+                    text("""
+                        SELECT qli.id, qli.brand_id, b.brand_name, qli.quantity, qli.free_quantity,
+                               qli.pricing_mode, qli.price_basis, qli.base_unit_price, qli.final_unit_price,
+                               qli.discount_amount_total, qli.assessable_value, qli.gst_rate_pct,
+                               qli.cgst_amount, qli.sgst_amount, qli.igst_amount,
+                               qli.tax_amount_total, qli.line_invoice_amount, qli.net_realization_amount,
+                               qli.cost_total, qli.margin_amount, qli.margin_pct, qli.nppa_compliant
+                        FROM quote_line_items qli
+                        JOIN brands b ON qli.brand_id = b.id
+                        WHERE qli.quote_id = :quote_id
+                        ORDER BY qli.id ASC
+                    """),
+                    {"quote_id": quote_id}
+                )
+                use_extended = True
+            except Exception:
+                items_result = db.execute(
+                    text("""
+                        SELECT qli.id, qli.brand_id, b.brand_name, qli.quantity, 0 AS free_quantity,
+                               'manual_margin' AS pricing_mode, 'MRP' AS price_basis,
+                               qli.unit_price AS base_unit_price, qli.unit_price AS final_unit_price,
+                               0 AS discount_amount_total, qli.line_total AS assessable_value, 0 AS gst_rate_pct,
+                               0 AS cgst_amount, 0 AS sgst_amount, 0 AS igst_amount,
+                               0 AS tax_amount_total, qli.line_total AS line_invoice_amount, qli.line_total AS net_realization_amount,
+                               0 AS cost_total, qli.margin_earned AS margin_amount, qli.margin_percentage AS margin_pct, true AS nppa_compliant
+                        FROM quote_line_items qli
+                        JOIN brands b ON qli.brand_id = b.id
+                        WHERE qli.quote_id = :quote_id
+                        ORDER BY qli.id ASC
+                    """),
+                    {"quote_id": quote_id}
+                )
+                use_extended = False
+
+            lines = []
+            for row in items_result:
+                lines.append({
+                    "quote_line_item_id": row[0],
+                    "brand_id": row[1],
+                    "brand_name": row[2],
+                    "quantity": row[3],
+                    "free_quantity": row[4] or 0,
+                    "pricing_mode": row[5],
+                    "price_basis": row[6],
+                    "base_unit_price": float(row[7] or 0),
+                    "final_unit_price": float(row[8] or 0),
+                    "discount_amount_total": float(row[9] or 0),
+                    "assessable_value": float(row[10] or 0),
+                    "gst_rate_pct": float(row[11] or 0),
+                    "cgst_amount": float(row[12] or 0),
+                    "sgst_amount": float(row[13] or 0),
+                    "igst_amount": float(row[14] or 0),
+                    "tax_amount_total": float(row[15] or 0),
+                    "line_invoice_amount": float(row[16] or 0),
+                    "net_realization_amount": float(row[17] or 0),
+                    "cost_total": float(row[18] or 0),
+                    "margin_amount": float(row[19] or 0),
+                    "margin_pct": float(row[20] or 0),
+                    "nppa_compliant": bool(row[21]) if row[21] is not None else True
+                })
+
+            payload = {
+                "destination": destination or "generic",
+                "format": export_format or "json",
+                "quote": {
+                    "quote_id": quote[0],
+                    "quote_number": quote[1],
+                    "customer_name": quote[2],
+                    "customer_email": quote[3],
+                    "customer_phone": quote[4],
+                    "quote_date": quote[5].isoformat() if quote[5] else None,
+                    "valid_until": quote[6].isoformat() if quote[6] else None,
+                    "total_quote_amount": float(quote[7] or 0),
+                    "total_tax_amount": float(quote[8] or 0),
+                    "total_margin": float(quote[9] or 0),
+                    "nppa_compliance_status": quote[10] or "compliant"
+                },
+                "line_items": lines
+            }
+
+            return {
+                "quote_id": quote_id,
+                "quote_number": quote[1],
+                "destination": destination or "generic",
+                "format": export_format or "json",
+                "generated_at": datetime.now().isoformat(),
+                "payload": payload
+            }
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to export ERP payload: {e}")
+            raise Exception("Failed to export ERP payload")
