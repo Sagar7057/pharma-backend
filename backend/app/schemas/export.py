@@ -23,7 +23,7 @@ class PDFExportRequest(BaseModel):
 
 class QuotePDFRequest(BaseModel):
     """Quote PDF export request"""
-    quote_id: int
+    quote_id: Optional[int] = None
     include_terms: Optional[bool] = True
     include_notes: Optional[bool] = True
 
@@ -41,7 +41,7 @@ class EmailRequest(BaseModel):
 
 class QuoteEmailRequest(BaseModel):
     """Quote email request"""
-    quote_id: int
+    quote_id: Optional[int] = None
     recipient_email: str
     subject: Optional[str] = None
     message: Optional[str] = None
