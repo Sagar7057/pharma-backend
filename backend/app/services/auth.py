@@ -7,6 +7,7 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.utils.auth import hash_password, verify_password, create_access_token
+from app.services.customer_type import CustomerTypeService
 from app.utils.validation import (
     validate_email, validate_phone, validate_name, 
     validate_company_name, validate_city, validate_state,
@@ -131,6 +132,14 @@ class AuthService:
         except Exception as e:
             logger.error(f"Failed to retrieve user: {e}")
             raise Exception("Failed to retrieve user")
+
+        # Initialize default customer types for new user.
+        # Do not fail signup response if this optional bootstrap step fails.
+        try:
+            if user_id:
+                await CustomerTypeService.init_default_types(str(user_id), db)
+        except Exception as e:
+            logger.warning(f"Failed to initialize default customer types for user {user_id}: {e}")
         
         # Generate token
         token = create_access_token(user_id, email)
