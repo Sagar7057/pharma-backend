@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from datetime import datetime, timedelta
 from decimal import Decimal
+import json
 import random
 import string
 
@@ -18,6 +19,9 @@ logger = logging.getLogger(__name__)
 
 class QuoteService:
     """Quote service for managing quotes"""
+
+    MONEY_QUANT = Decimal("0.01")
+    PCT_QUANT = Decimal("0.0001")
 
     @staticmethod
     def _column_exists(db: Session, table_name: str, column_name: str) -> bool:
@@ -34,6 +38,58 @@ class QuoteService:
             {"table_name": table_name, "column_name": column_name}
         ).fetchone()
         return bool(row)
+
+    @staticmethod
+    def _to_decimal(value: Any, default: str = "0") -> Decimal:
+        """Convert numeric-ish value to Decimal safely."""
+        if value is None or value == "":
+            return Decimal(default)
+        return Decimal(str(value))
+
+    @staticmethod
+    def _round_money(value: Decimal) -> Decimal:
+        return value.quantize(QuoteService.MONEY_QUANT)
+
+    @staticmethod
+    def _round_pct(value: Decimal) -> Decimal:
+        return value.quantize(QuoteService.PCT_QUANT)
+
+    @staticmethod
+    def _get_user_common_metrics(user_id: str, db: Session) -> Dict[str, Decimal]:
+        """Fetch user-level defaults used for quote creation fallback."""
+        defaults = {
+            "default_gst_pct": Decimal("0"),
+            "default_freight_amount": Decimal("0"),
+            "default_handling_amount": Decimal("0"),
+            "default_other_charges_amount": Decimal("0"),
+            "default_claim_rebate_amount": Decimal("0"),
+        }
+        try:
+            row = db.execute(
+                text(
+                    """
+                    SELECT metrics_json
+                    FROM user_common_metrics
+                    WHERE user_id = :user_id
+                    """
+                ),
+                {"user_id": user_id},
+            ).fetchone()
+            if not row or not row[0]:
+                return defaults
+
+            metrics = row[0]
+            if isinstance(metrics, str):
+                metrics = json.loads(metrics)
+            if not isinstance(metrics, dict):
+                return defaults
+
+            merged = dict(defaults)
+            for key in merged.keys():
+                merged[key] = QuoteService._to_decimal(metrics.get(key), str(merged[key]))
+            return merged
+        except Exception:
+            return defaults
 
     @staticmethod
     def _resolve_base_price(item: Dict[str, Any], cost_price: Decimal, mrp: Decimal, ptr: Optional[Decimal], pts: Optional[Decimal]) -> Decimal:
@@ -115,13 +171,13 @@ class QuoteService:
         try:
             # Generate quote number
             quote_number = QuoteService._generate_quote_number(user_id)
+            common_metrics = QuoteService._get_user_common_metrics(user_id, db)
             
             # Calculate totals
             total_amount = Decimal("0")
             total_margin = Decimal("0")
             total_discount = Decimal("0")
             total_tax = Decimal("0")
-            total_items = len(line_items)
             
             # Validate and calculate line items
             processed_items = []
@@ -141,8 +197,8 @@ class QuoteService:
                     raise ValueError(f"Brand {item['brand_id']} not found")
                 
                 cost_price, mrp, ptr, pts, is_nppa_controlled, nppa_margin_limit = brand
-                cost_price = Decimal(cost_price)
-                mrp = Decimal(mrp)
+                cost_price = QuoteService._to_decimal(cost_price)
+                mrp = QuoteService._to_decimal(mrp)
 
                 line_price_basis = item.get("price_basis")
                 if hasattr(line_price_basis, "value"):
@@ -178,25 +234,33 @@ class QuoteService:
                     )
                     candidate_unit_price = Decimal(str(recommendation["options"]["elasticity_recommended"]["unit_price"]))
                 elif item.get("unit_price"):
-                    candidate_unit_price = Decimal(str(item["unit_price"]))
+                    candidate_unit_price = QuoteService._to_decimal(item["unit_price"])
                 elif item.get("margin_percentage"):
-                    margin_pct = Decimal(str(item["margin_percentage"]))
+                    margin_pct = QuoteService._to_decimal(item["margin_percentage"])
                     candidate_unit_price = cost_price * (Decimal("1") + (margin_pct / Decimal("100")))
                 else:
                     candidate_unit_price = base_price
 
                 # Hard cap at MRP
                 candidate_unit_price = min(candidate_unit_price, mrp)
+                if candidate_unit_price < 0:
+                    raise ValueError(f"Invalid unit price calculated for brand {item['brand_id']}")
 
                 # Additional India discount stack
-                retailer_discount = Decimal(str(item.get("retailer_discount_pct", 0) or 0))
-                stockist_discount = Decimal(str(item.get("stockist_discount_pct", 0) or 0))
-                scheme_discount = Decimal(str(item.get("scheme_discount_pct", 0) or 0))
-                cash_discount = Decimal(str(item.get("cash_discount_pct", 0) or 0))
-                volume_discount = Decimal(str(item.get("volume_discount_pct", 0) or 0))
-                legacy_discount = Decimal(str(item.get("discount", 0) or 0))
+                retailer_discount = QuoteService._to_decimal(item.get("retailer_discount_pct", 0))
+                stockist_discount = QuoteService._to_decimal(item.get("stockist_discount_pct", 0))
+                scheme_discount = QuoteService._to_decimal(item.get("scheme_discount_pct", 0))
+                cash_discount = QuoteService._to_decimal(item.get("cash_discount_pct", 0))
+                volume_discount = QuoteService._to_decimal(item.get("volume_discount_pct", 0))
+                legacy_discount = QuoteService._to_decimal(item.get("discount", 0))
                 total_discount_pct = retailer_discount + stockist_discount + scheme_discount + cash_discount + volume_discount + legacy_discount
-                total_discount_pct = max(Decimal("0"), min(total_discount_pct, Decimal("100")))
+                if total_discount_pct < 0:
+                    raise ValueError(f"Total discount cannot be negative for brand {item['brand_id']}")
+                if total_discount_pct > Decimal("100"):
+                    raise ValueError(
+                        f"Total discount {total_discount_pct:.2f}% exceeds 100% for brand {item['brand_id']}. "
+                        "Adjust discount stack."
+                    )
 
                 final_unit_price = candidate_unit_price * (Decimal("1") - total_discount_pct / Decimal("100"))
 
@@ -213,10 +277,22 @@ class QuoteService:
 
                 # Waterfall components
                 quantity = int(item["quantity"])
-                freight_amount = Decimal(str(item.get("freight_amount", 0) or 0))
-                handling_amount = Decimal(str(item.get("handling_amount", 0) or 0))
-                other_charges_amount = Decimal(str(item.get("other_charges_amount", 0) or 0))
-                claim_rebate_amount = Decimal(str(item.get("claim_rebate_amount", 0) or 0))
+                freight_amount = QuoteService._to_decimal(
+                    item.get("freight_amount"),
+                    str(common_metrics["default_freight_amount"])
+                )
+                handling_amount = QuoteService._to_decimal(
+                    item.get("handling_amount"),
+                    str(common_metrics["default_handling_amount"])
+                )
+                other_charges_amount = QuoteService._to_decimal(
+                    item.get("other_charges_amount"),
+                    str(common_metrics["default_other_charges_amount"])
+                )
+                claim_rebate_amount = QuoteService._to_decimal(
+                    item.get("claim_rebate_amount"),
+                    str(common_metrics["default_claim_rebate_amount"])
+                )
 
                 pre_discount_total = candidate_unit_price * Decimal(quantity)
                 post_discount_total = final_unit_price * Decimal(quantity)
@@ -226,7 +302,11 @@ class QuoteService:
                 gst_rate_pct = QuoteService._get_gst_rate(
                     brand_id=item["brand_id"],
                     user_id=user_id,
-                    item_gst_rate=item.get("gst_rate_pct"),
+                    item_gst_rate=(
+                        item.get("gst_rate_pct")
+                        if item.get("gst_rate_pct") is not None
+                        else float(common_metrics["default_gst_pct"])
+                    ),
                     db=db
                 )
                 gst_split = QuoteService._split_gst(
@@ -244,8 +324,22 @@ class QuoteService:
                 line_total = line_invoice_amount
                 cost_total = cost_price * Decimal(quantity)
                 line_margin = net_realization_amount - cost_total
-                margin_per_unit = (net_realization_amount / Decimal(quantity)) - cost_price if quantity > 0 else Decimal("0")
                 actual_margin = (line_margin / cost_total * Decimal("100")) if cost_total > 0 else Decimal("0")
+
+                candidate_unit_price = QuoteService._round_money(candidate_unit_price)
+                final_unit_price = QuoteService._round_money(final_unit_price)
+                discount_amount_total = QuoteService._round_money(discount_amount_total)
+                assessable_value = QuoteService._round_money(assessable_value)
+                tax_amount_total = QuoteService._round_money(tax_amount_total)
+                cgst_amount = QuoteService._round_money(cgst_amount)
+                sgst_amount = QuoteService._round_money(sgst_amount)
+                igst_amount = QuoteService._round_money(igst_amount)
+                line_invoice_amount = QuoteService._round_money(line_invoice_amount)
+                net_realization_amount = QuoteService._round_money(net_realization_amount)
+                line_total = QuoteService._round_money(line_total)
+                cost_total = QuoteService._round_money(cost_total)
+                line_margin = QuoteService._round_money(line_margin)
+                actual_margin = QuoteService._round_pct(actual_margin)
 
                 total_amount += line_total
                 total_margin += line_margin
@@ -317,8 +411,9 @@ class QuoteService:
                 "place_of_supply_state_code": place_of_supply_state_code
             }
             use_extended_quote = QuoteService._column_exists(db, "quotes", "total_discount_amount")
+            quote_id = None
             if use_extended_quote:
-                db.execute(
+                quote_id = db.execute(
                     text("""
                         INSERT INTO quotes 
                         (user_id, quote_number, customer_name, customer_email, customer_phone,
@@ -332,11 +427,12 @@ class QuoteService:
                                :total_tax_amount, :total_quote_amount, :nppa_compliance_status, :price_basis, :customer_id,
                                :seller_state_code, :place_of_supply_state_code,
                                CURRENT_TIMESTAMP)
+                        RETURNING id
                     """),
                     quote_payload
-                )
+                ).scalar()
             else:
-                db.execute(
+                quote_id = db.execute(
                     text("""
                         INSERT INTO quotes 
                         (user_id, quote_number, customer_name, customer_email, customer_phone,
@@ -346,17 +442,12 @@ class QuoteService:
                                :customer_phone, :customer_type_id, :status, :notes,
                                CURRENT_TIMESTAMP, :valid_until, :total_amount, :total_margin,
                                CURRENT_TIMESTAMP)
+                        RETURNING id
                     """),
                     quote_payload
-                )
-            db.commit()
-            
-            # Get created quote ID
-            result = db.execute(
-                text("SELECT id FROM quotes WHERE quote_number = :quote_number"),
-                {"quote_number": quote_number}
-            )
-            quote_id = result.scalar()
+                ).scalar()
+            if not quote_id:
+                raise Exception("Failed to create quote header")
             
             # Insert line items
             use_extended_line = QuoteService._column_exists(db, "quote_line_items", "pricing_mode")
@@ -702,17 +793,39 @@ class QuoteService:
     ) -> Dict[str, Any]:
         """Update quote status"""
         try:
+            next_status = status.value if hasattr(status, "value") else status
+            current_row = db.execute(
+                text("SELECT status FROM quotes WHERE id = :quote_id AND user_id = :user_id"),
+                {"quote_id": quote_id, "user_id": user_id}
+            ).fetchone()
+            if not current_row:
+                raise ValueError("Quote not found")
+
+            current_status = current_row[0]
+            allowed_transitions = {
+                "draft": {"sent"},
+                "sent": {"accepted", "rejected"},
+                "viewed": {"accepted", "rejected"},
+                "accepted": set(),
+                "rejected": set(),
+                "expired": set(),
+            }
+            if next_status not in allowed_transitions.get(current_status, set()):
+                raise ValueError(f"Invalid status transition: {current_status} -> {next_status}")
+
             db.execute(
                 text("""
                     UPDATE quotes 
                     SET status = :status, updated_at = CURRENT_TIMESTAMP
                     WHERE id = :quote_id AND user_id = :user_id
                 """),
-                {"quote_id": quote_id, "user_id": user_id, "status": status}
+                {"quote_id": quote_id, "user_id": user_id, "status": next_status}
             )
             db.commit()
             
             return await QuoteService.get_quote(user_id, quote_id, db)
+        except ValueError:
+            raise
         except Exception as e:
             db.rollback()
             logger.error(f"Failed to update quote: {e}")
