@@ -52,6 +52,9 @@ class PriceCalculationRequest(BaseModel):
     brand_id: int
     customer_type_id: Optional[int] = None
     quantity: int = Field(..., gt=0)
+    current_unit_price: Optional[float] = Field(None, gt=0)
+    channel: Optional[str] = None
+    region_code: Optional[str] = None
 
 class PriceCalculationResponse(BaseModel):
     """Price calculation response"""
@@ -68,3 +71,17 @@ class NPPACheckResponse(BaseModel):
     """NPPA compliance check response"""
     success: bool
     data: dict = Field(..., description="Contains NPPA compliance info")
+
+class PriceRecommendRequest(BaseModel):
+    """Pricing recommendation request"""
+    brand_id: int
+    customer_type_id: Optional[int] = None
+    quantity: int = Field(..., gt=0)
+    current_unit_price: Optional[float] = Field(None, gt=0)
+    channel: Optional[str] = None
+    region_code: Optional[str] = None
+
+class PriceRecommendResponse(BaseModel):
+    """Pricing recommendation response"""
+    success: bool
+    data: dict = Field(..., description="Contains recommendation options")
