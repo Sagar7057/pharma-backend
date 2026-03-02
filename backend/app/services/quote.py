@@ -491,25 +491,27 @@ class QuoteService:
             if use_extended_line:
                 items_result = db.execute(
                     text("""
-                        SELECT id, brand_id, quantity, unit_price, margin_percentage,
+                        SELECT qli.id, qli.brand_id, b.brand_name, qli.quantity, qli.unit_price, qli.margin_percentage,
                                discount, line_total, margin_earned, pricing_mode, price_basis,
                                base_unit_price, final_unit_price, discount_amount_total, assessable_value,
                                tax_amount_total, line_invoice_amount, net_realization_amount,
                                margin_amount, margin_pct, nppa_compliant, confidence_score, model_version, created_at
-                        FROM quote_line_items 
-                        WHERE quote_id = :quote_id
-                        ORDER BY id ASC
+                        FROM quote_line_items qli
+                        LEFT JOIN brands b ON b.id = qli.brand_id
+                        WHERE qli.quote_id = :quote_id
+                        ORDER BY qli.id ASC
                     """),
                     {"quote_id": quote_id}
                 )
             else:
                 items_result = db.execute(
                     text("""
-                        SELECT id, brand_id, quantity, unit_price, margin_percentage,
-                               discount, line_total, margin_earned, created_at
-                        FROM quote_line_items 
-                        WHERE quote_id = :quote_id
-                        ORDER BY id ASC
+                        SELECT qli.id, qli.brand_id, b.brand_name, qli.quantity, qli.unit_price, qli.margin_percentage,
+                               qli.discount, qli.line_total, qli.margin_earned, qli.created_at
+                        FROM quote_line_items qli
+                        LEFT JOIN brands b ON b.id = qli.brand_id
+                        WHERE qli.quote_id = :quote_id
+                        ORDER BY qli.id ASC
                     """),
                     {"quote_id": quote_id}
                 )
@@ -520,39 +522,41 @@ class QuoteService:
                     line_items.append({
                         "id": row[0],
                         "brand_id": row[1],
-                        "quantity": row[2],
-                        "unit_price": float(row[3]),
-                        "margin_percentage": float(row[4]),
-                        "discount": float(row[5]) if row[5] else 0,
-                        "line_total": float(row[6]),
-                        "margin_earned": float(row[7]),
-                        "pricing_mode": row[8],
-                        "price_basis": row[9],
-                        "base_unit_price": float(row[10]) if row[10] is not None else 0.0,
-                        "final_unit_price": float(row[11]) if row[11] is not None else 0.0,
-                        "discount_amount_total": float(row[12]) if row[12] is not None else 0.0,
-                        "assessable_value": float(row[13]) if row[13] is not None else 0.0,
-                        "tax_amount_total": float(row[14]) if row[14] is not None else 0.0,
-                        "line_invoice_amount": float(row[15]) if row[15] is not None else 0.0,
-                        "net_realization_amount": float(row[16]) if row[16] is not None else 0.0,
-                        "margin_amount": float(row[17]) if row[17] is not None else 0.0,
-                        "margin_pct": float(row[18]) if row[18] is not None else 0.0,
-                        "nppa_compliant": bool(row[19]) if row[19] is not None else True,
-                        "confidence_score": float(row[20]) if row[20] is not None else None,
-                        "model_version": row[21],
-                        "created_at": row[22]
+                        "brand_name": row[2],
+                        "quantity": row[3],
+                        "unit_price": float(row[4]),
+                        "margin_percentage": float(row[5]),
+                        "discount": float(row[6]) if row[6] else 0,
+                        "line_total": float(row[7]),
+                        "margin_earned": float(row[8]),
+                        "pricing_mode": row[9],
+                        "price_basis": row[10],
+                        "base_unit_price": float(row[11]) if row[11] is not None else 0.0,
+                        "final_unit_price": float(row[12]) if row[12] is not None else 0.0,
+                        "discount_amount_total": float(row[13]) if row[13] is not None else 0.0,
+                        "assessable_value": float(row[14]) if row[14] is not None else 0.0,
+                        "tax_amount_total": float(row[15]) if row[15] is not None else 0.0,
+                        "line_invoice_amount": float(row[16]) if row[16] is not None else 0.0,
+                        "net_realization_amount": float(row[17]) if row[17] is not None else 0.0,
+                        "margin_amount": float(row[18]) if row[18] is not None else 0.0,
+                        "margin_pct": float(row[19]) if row[19] is not None else 0.0,
+                        "nppa_compliant": bool(row[20]) if row[20] is not None else True,
+                        "confidence_score": float(row[21]) if row[21] is not None else None,
+                        "model_version": row[22],
+                        "created_at": row[23]
                     })
                 else:
                     line_items.append({
                         "id": row[0],
                         "brand_id": row[1],
-                        "quantity": row[2],
-                        "unit_price": float(row[3]),
-                        "margin_percentage": float(row[4]),
-                        "discount": float(row[5]) if row[5] else 0,
-                        "line_total": float(row[6]),
-                        "margin_earned": float(row[7]),
-                        "created_at": row[8]
+                        "brand_name": row[2],
+                        "quantity": row[3],
+                        "unit_price": float(row[4]),
+                        "margin_percentage": float(row[5]),
+                        "discount": float(row[6]) if row[6] else 0,
+                        "line_total": float(row[7]),
+                        "margin_earned": float(row[8]),
+                        "created_at": row[9]
                     })
 
             if use_extended_quote:
