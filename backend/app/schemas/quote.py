@@ -3,7 +3,7 @@ Quote schemas for request/response validation
 Pydantic models for quote management
 """
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
@@ -50,6 +50,20 @@ class QuoteLineItemBase(BaseModel):
     claim_rebate_amount: Optional[float] = Field(0, ge=0)
     override_reason: Optional[str] = Field(None, max_length=1000)
 
+    @model_validator(mode="after")
+    def validate_total_discount_stack(self):
+        total_discount = (
+            (self.discount or 0)
+            + (self.retailer_discount_pct or 0)
+            + (self.stockist_discount_pct or 0)
+            + (self.scheme_discount_pct or 0)
+            + (self.cash_discount_pct or 0)
+            + (self.volume_discount_pct or 0)
+        )
+        if total_discount > 100:
+            raise ValueError("Combined discount stack cannot exceed 100%")
+        return self
+
 class QuoteLineItemCreate(QuoteLineItemBase):
     """Create quote line item"""
     pass
@@ -89,6 +103,16 @@ class QuoteCreate(BaseModel):
     notes: Optional[str] = Field(None, max_length=1000)
     line_items: List[QuoteLineItemCreate] = Field(..., min_items=1)
     validity_days: Optional[int] = Field(7, ge=1, le=90)
+
+    @field_validator("seller_state_code", "place_of_supply_state_code")
+    @classmethod
+    def normalize_state_code(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        v = value.strip().upper()
+        if len(v) != 2 or not v.isalnum():
+            raise ValueError("State code must be a 2-character code")
+        return v
 
 class QuoteUpdate(BaseModel):
     """Update quote request"""
