@@ -17,6 +17,68 @@ class ExportService:
     """Service for PDF and email exports"""
 
     @staticmethod
+    def _escape_pdf_text(value: str) -> str:
+        """Escape text for PDF content streams."""
+        return (
+            value.replace("\\", "\\\\")
+            .replace("(", "\\(")
+            .replace(")", "\\)")
+        )
+
+    @staticmethod
+    def _build_simple_pdf(lines: list[str]) -> bytes:
+        """
+        Build a minimal valid single-page PDF without external dependencies.
+        This keeps export stable even when PDF libraries are unavailable.
+        """
+        commands = [
+            "BT",
+            "/F1 11 Tf",
+            "50 800 Td",
+            "15 TL",
+        ]
+
+        for line in lines:
+            safe = ExportService._escape_pdf_text(line)
+            commands.append(f"({safe}) Tj")
+            commands.append("T*")
+
+        commands.append("ET")
+        stream_bytes = "\n".join(commands).encode("latin-1", errors="replace")
+
+        objects = {
+            1: b"<< /Type /Catalog /Pages 2 0 R >>",
+            2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+            4: b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            5: (
+                f"<< /Length {len(stream_bytes)} >>\nstream\n".encode("ascii")
+                + stream_bytes
+                + b"\nendstream"
+            ),
+        }
+
+        pdf = b"%PDF-1.4\n"
+        offsets = [0]
+        for obj_id in range(1, 6):
+            offsets.append(len(pdf))
+            pdf += f"{obj_id} 0 obj\n".encode("ascii")
+            pdf += objects[obj_id]
+            pdf += b"\nendobj\n"
+
+        xref_offset = len(pdf)
+        pdf += b"xref\n0 6\n"
+        pdf += b"0000000000 65535 f \n"
+        for off in offsets[1:]:
+            pdf += f"{off:010d} 00000 n \n".encode("ascii")
+
+        pdf += b"trailer\n<< /Size 6 /Root 1 0 R >>\n"
+        pdf += b"startxref\n"
+        pdf += f"{xref_offset}\n".encode("ascii")
+        pdf += b"%%EOF"
+        return pdf
+
+    @staticmethod
     async def generate_quote_pdf(
         user_id: int,
         quote_id: int,
@@ -80,89 +142,48 @@ class ExportService:
             total_margin = float(quote[10]) if quote[10] is not None else 0.0
             quote_date = quote[7].strftime("%Y-%m-%d") if quote[7] else "N/A"
 
-            # Build PDF content (simplified HTML base)
-            pdf_html = f"""
-            <html>
-                <head>
-                    <style>
-                        body {{ font-family: Arial, sans-serif; margin: 20px; }}
-                        .header {{ text-align: center; margin-bottom: 30px; }}
-                        .quote-number {{ font-size: 24px; font-weight: bold; }}
-                        table {{ width: 100%; border-collapse: collapse; margin: 20px 0; }}
-                        th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
-                        th {{ background-color: #f0f0f0; }}
-                        .total-row {{ font-weight: bold; }}
-                        .footer {{ margin-top: 30px; font-size: 12px; }}
-                    </style>
-                </head>
-                <body>
-                    <div class="header">
-                        <div class="quote-number">Quote: {quote[1]}</div>
-                        <div>Date: {quote_date}</div>
-                    </div>
-
-                    <h3>Customer Information</h3>
-                    <p><strong>{quote[2]}</strong></p>
-                    <p>Email: {quote[3] or 'N/A'}</p>
-                    <p>Phone: {quote[4] or 'N/A'}</p>
-
-                    <h3>Quote Details</h3>
-                    <table>
-                        <tr>
-                            <th>Product</th>
-                            <th>Quantity</th>
-                            <th>Unit Price</th>
-                            <th>Total</th>
-                        </tr>
-            """
+            pdf_lines = [
+                f"Quote: {quote[1]}",
+                f"Date: {quote_date}",
+                "",
+                "Customer Information",
+                f"Name: {quote[2]}",
+                f"Email: {quote[3] or 'N/A'}",
+                f"Phone: {quote[4] or 'N/A'}",
+                "",
+                "Quote Details",
+                "Product | Qty | Unit Price | Total",
+            ]
 
             for item in line_items:
-                pdf_html += f"""
-                        <tr>
-                            <td>{item['brand_name']}</td>
-                            <td>{item['quantity']}</td>
-                            <td>INR {item['unit_price']:.2f}</td>
-                            <td>INR {item['line_total']:.2f}</td>
-                        </tr>
-                """
+                pdf_lines.append(
+                    f"{item['brand_name']} | {item['quantity']} | INR {item['unit_price']:.2f} | INR {item['line_total']:.2f}"
+                )
 
-            pdf_html += f"""
-                        <tr class="total-row">
-                            <td colspan="3">Total Amount</td>
-                            <td>INR {total_amount:.2f}</td>
-                        </tr>
-                        <tr class="total-row">
-                            <td colspan="3">Total Margin</td>
-                            <td>INR {total_margin:.2f}</td>
-                        </tr>
-                    </table>
-            """
+            pdf_lines.extend(
+                [
+                    "",
+                    f"Total Amount: INR {total_amount:.2f}",
+                    f"Total Margin: INR {total_margin:.2f}",
+                ]
+            )
 
             if include_notes and quote[6]:
-                pdf_html += f"""
-                    <h3>Notes</h3>
-                    <p>{quote[6]}</p>
-                """
+                pdf_lines.extend(["", "Notes", str(quote[6])])
 
             if include_terms:
-                pdf_html += """
-                    <div class="footer">
-                        <h4>Terms & Conditions</h4>
-                        <ul>
-                            <li>This quote is valid until the date mentioned above</li>
-                            <li>Prices are subject to change without notice</li>
-                            <li>Delivery timelines will be confirmed upon order</li>
-                        </ul>
-                    </div>
-                """
+                pdf_lines.extend(
+                    [
+                        "",
+                        "Terms & Conditions",
+                        "- This quote is valid until the date mentioned above",
+                        "- Prices are subject to change without notice",
+                        "- Delivery timelines will be confirmed upon order",
+                    ]
+                )
 
-            pdf_html += """
-                </body>
-            </html>
-            """
-
-            # For now, return HTML as base64 (placeholder for PDF bytes)
-            pdf_base64 = base64.b64encode(pdf_html.encode()).decode()
+            pdf_bytes = ExportService._build_simple_pdf(pdf_lines)
+            pdf_base64 = base64.b64encode(pdf_bytes).decode("ascii")
 
             return {
                 "quote_id": quote_id,
