@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from datetime import datetime, timedelta
+from decimal import Decimal
 import random
 import string
 
@@ -62,34 +63,39 @@ class QuoteService:
                     raise ValueError(f"Brand {item['brand_id']} not found")
                 
                 cost_price, mrp = brand
+                cost_price = Decimal(cost_price)
+                mrp = Decimal(mrp)
                 
                 # Use provided unit_price or calculate from margin
                 if item.get("unit_price"):
-                    unit_price = item["unit_price"]
+                    unit_price = Decimal(str(item["unit_price"]))
                 elif item.get("margin_percentage"):
-                    unit_price = cost_price * (1 + item["margin_percentage"] / 100)
+                    margin_pct = Decimal(str(item["margin_percentage"]))
+                    unit_price = cost_price * (Decimal("1") + (margin_pct / Decimal("100")))
                     unit_price = min(unit_price, mrp)  # Cap at MRP
                 else:
                     unit_price = mrp  # Default to MRP
                 
                 # Apply discount if provided
                 if item.get("discount", 0) > 0:
-                    unit_price = unit_price * (1 - item["discount"] / 100)
+                    discount_pct = Decimal(str(item["discount"]))
+                    unit_price = unit_price * (Decimal("1") - (discount_pct / Decimal("100")))
                 
                 # Calculate line totals
-                line_total = unit_price * item["quantity"]
+                quantity = int(item["quantity"])
+                line_total = unit_price * Decimal(quantity)
                 margin_per_unit = unit_price - cost_price
-                line_margin = margin_per_unit * item["quantity"]
+                line_margin = margin_per_unit * Decimal(quantity)
                 
                 # Recalculate actual margin percentage
-                actual_margin = (margin_per_unit / cost_price * 100) if cost_price > 0 else 0
+                actual_margin = (margin_per_unit / cost_price * Decimal("100")) if cost_price > 0 else Decimal("0")
                 
                 total_amount += line_total
                 total_margin += line_margin
                 
                 processed_items.append({
                     "brand_id": item["brand_id"],
-                    "quantity": item["quantity"],
+                    "quantity": quantity,
                     "unit_price": unit_price,
                     "margin_percentage": actual_margin,
                     "discount": item.get("discount", 0),
