@@ -210,8 +210,8 @@ async def import_brands_csv(
     Import brands from CSV file
     
     Expected CSV format:
-    Brand,Manufacturer,MRP,CostPrice,DefaultMargin
-    Amoxicillin 500mg,Cipla,35.00,30.00,15
+    Brand,Manufacturer,MRP,CostPrice,DefaultMargin,TherapeuticCategory,SaltName,Strength,Packing,GTINCode
+    Amoxicillin 500mg,Cipla,35.00,30.00,15,Antibiotic,Amoxicillin,500mg,10x10,8901234567890
     """
     try:
         # Validate file type
@@ -223,7 +223,7 @@ async def import_brands_csv(
         
         # Read file content
         content = await file.read()
-        csv_content = content.decode('utf-8')
+        csv_content = content.decode('utf-8-sig')
         
         # Import
         result = await BrandService.import_csv(
