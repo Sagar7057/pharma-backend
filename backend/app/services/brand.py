@@ -306,55 +306,98 @@ class BrandService:
             failed = 0
             skipped = 0
             errors = []
-            
+
+            def _pick(row_data: Dict[str, Any], keys: List[str], default: str = "") -> str:
+                for key in keys:
+                    if key in row_data and row_data[key] is not None:
+                        return str(row_data[key]).strip()
+                return default
+
+            def _to_float(value: str, default: Optional[float] = None) -> Optional[float]:
+                if value is None:
+                    return default
+                value = str(value).strip()
+                if value == "":
+                    return default
+                return float(value)
+
             # Parse CSV
             csv_reader = csv.DictReader(StringIO(csv_content))
-            
+            if not csv_reader.fieldnames:
+                raise ValueError("CSV header row is missing")
+
             for row_num, row in enumerate(csv_reader, start=2):  # Start from 2 (after header)
                 try:
-                    # Extract fields
-                    brand_name = row.get('Brand', '').strip()
-                    manufacturer = row.get('Manufacturer', '').strip()
-                    mrp = float(row.get('MRP', 0))
-                    cost_price = float(row.get('CostPrice', 0))
-                    default_margin = float(row.get('DefaultMargin', 0))
-                    
+                    # Normalize headers to lowercase without surrounding spaces
+                    normalized = {str(k).strip().lower(): v for k, v in row.items() if k is not None}
+
+                    # Backward-compatible header support
+                    brand_name = _pick(normalized, ["brand", "brandname", "brand_name"])
+                    manufacturer = _pick(normalized, ["manufacturer"])
+                    therapeutic_category = _pick(normalized, ["therapeuticcategory", "therapeutic_category", "therapeutic category"])
+                    salt_name = _pick(normalized, ["saltname", "salt_name", "salt name"])
+                    strength = _pick(normalized, ["strength"])
+                    packing = _pick(normalized, ["packing"])
+                    gtin_code = _pick(normalized, ["gtin", "gtincode", "gtin_code", "gtin code"])
+
+                    mrp = _to_float(_pick(normalized, ["mrp"]), default=0)
+                    cost_price = _to_float(_pick(normalized, ["costprice", "cost_price", "cost price"]), default=0)
+                    default_margin = _to_float(
+                        _pick(normalized, ["defaultmargin", "default_margin", "default margin", "targetmargin", "target_margin", "target margin"]),
+                        default=0
+                    )
+
                     # Validate
                     if not brand_name:
                         errors.append({"row": row_num, "error": "Brand name is required"})
                         failed += 1
                         continue
-                    
+
                     if mrp <= 0 or cost_price <= 0:
                         errors.append({"row": row_num, "error": "Prices must be > 0"})
                         failed += 1
                         continue
-                    
+
                     if mrp < cost_price:
                         errors.append({"row": row_num, "error": "MRP must be >= Cost Price"})
                         failed += 1
                         continue
-                    
+
+                    if default_margin is not None and (default_margin < 0 or default_margin > 100):
+                        errors.append({"row": row_num, "error": "Default/Target Margin must be between 0 and 100"})
+                        failed += 1
+                        continue
+
                     # Check for duplicate
                     result = db.execute(
                         text("""
                             SELECT id FROM brands 
-                            WHERE user_id = CAST(:user_id AS UUID) AND brand_name = :brand_name
+                            WHERE user_id = CAST(:user_id AS UUID)
+                            AND brand_name = :brand_name
+                            AND strength = :strength
+                            AND packing = :packing
                         """),
-                        {"user_id": user_id, "brand_name": brand_name}
+                        {
+                            "user_id": user_id,
+                            "brand_name": brand_name,
+                            "strength": strength,
+                            "packing": packing
+                        }
                     )
                     if result.fetchone():
                         skipped += 1
                         continue
-                    
+
                     # Insert
                     db.execute(
                         text("""
                             INSERT INTO brands 
                             (user_id, brand_name, manufacturer, mrp, cost_price, 
-                             default_margin, is_active, created_at, updated_at)
+                             default_margin, therapeutic_category, salt_name,
+                             strength, packing, gtin_code, is_active, created_at, updated_at)
                             VALUES (CAST(:user_id AS UUID), :brand_name, :manufacturer, :mrp, :cost_price,
-                                   :default_margin, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                   :default_margin, :therapeutic_category, :salt_name,
+                                   :strength, :packing, :gtin_code, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                         """),
                         {
                             "user_id": user_id,
@@ -362,20 +405,25 @@ class BrandService:
                             "manufacturer": manufacturer,
                             "mrp": mrp,
                             "cost_price": cost_price,
-                            "default_margin": default_margin
+                            "default_margin": default_margin,
+                            "therapeutic_category": therapeutic_category,
+                            "salt_name": salt_name,
+                            "strength": strength,
+                            "packing": packing,
+                            "gtin_code": gtin_code
                         }
                     )
                     imported += 1
-                    
+
                 except ValueError as e:
                     errors.append({"row": row_num, "error": str(e)})
                     failed += 1
                 except Exception as e:
-                    errors.append({"row": row_num, "error": "Invalid data"})
+                    errors.append({"row": row_num, "error": f"Invalid data: {str(e)}"})
                     failed += 1
-            
+
             db.commit()
-            
+
             return {
                 "imported": imported,
                 "failed": failed,
@@ -383,7 +431,7 @@ class BrandService:
                 "total": imported + failed + skipped,
                 "errors": errors[:10]  # Limit to first 10 errors
             }
-            
+
         except Exception as e:
             db.rollback()
             logger.error(f"Failed to import CSV: {e}")
