@@ -40,6 +40,21 @@ class QuoteService:
         return bool(row)
 
     @staticmethod
+    def _table_exists(db: Session, table_name: str) -> bool:
+        """Check if a table exists in public schema."""
+        row = db.execute(
+            text("""
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_name = :table_name
+                LIMIT 1
+            """),
+            {"table_name": table_name}
+        ).fetchone()
+        return bool(row)
+
+    @staticmethod
     def _to_decimal(value: Any, default: str = "0") -> Decimal:
         """Convert numeric-ish value to Decimal safely."""
         if value is None or value == "":
@@ -785,12 +800,75 @@ class QuoteService:
         except Exception as e:
             logger.error(f"Failed to list quotes: {e}")
             raise Exception("Failed to list quotes")
+
+    @staticmethod
+    async def get_quote_stats(
+        user_id: int,
+        customer_name: Optional[str],
+        db: Session
+    ) -> Dict[str, Any]:
+        """Get quote status counts and amount summary."""
+        try:
+            where_clause = "WHERE user_id = :user_id"
+            params: Dict[str, Any] = {"user_id": user_id}
+            if customer_name:
+                where_clause += " AND customer_name ILIKE :customer_name"
+                params["customer_name"] = f"%{customer_name}%"
+
+            rows = db.execute(
+                text(f"""
+                    SELECT status, COUNT(*) AS count, COALESCE(SUM(total_amount), 0) AS amount
+                    FROM quotes
+                    {where_clause}
+                    GROUP BY status
+                """),
+                params
+            ).fetchall()
+
+            counts = {
+                "draft": 0,
+                "sent": 0,
+                "viewed": 0,
+                "accepted": 0,
+                "rejected": 0,
+                "expired": 0
+            }
+            amounts = {
+                "draft": 0.0,
+                "sent": 0.0,
+                "viewed": 0.0,
+                "accepted": 0.0,
+                "rejected": 0.0,
+                "expired": 0.0
+            }
+            total_quotes = 0
+            total_amount = 0.0
+            for row in rows:
+                status_key = row[0]
+                count_val = int(row[1] or 0)
+                amount_val = float(row[2] or 0)
+                if status_key in counts:
+                    counts[status_key] = count_val
+                    amounts[status_key] = amount_val
+                total_quotes += count_val
+                total_amount += amount_val
+
+            return {
+                "counts": counts,
+                "amounts": amounts,
+                "total_quotes": total_quotes,
+                "total_amount": total_amount
+            }
+        except Exception as e:
+            logger.error(f"Failed to get quote stats: {e}")
+            raise Exception("Failed to get quote stats")
     
     @staticmethod
     async def update_quote_status(
         user_id: int,
         quote_id: int,
         status: str,
+        remarks: Optional[str],
         db: Session
     ) -> Dict[str, Any]:
         """Update quote status"""
@@ -823,6 +901,23 @@ class QuoteService:
                 """),
                 {"quote_id": quote_id, "user_id": user_id, "status": next_status}
             )
+
+            if QuoteService._table_exists(db, "quote_status_history"):
+                db.execute(
+                    text("""
+                        INSERT INTO quote_status_history
+                        (quote_id, old_status, new_status, changed_by, changed_at, remarks)
+                        VALUES
+                        (:quote_id, :old_status, :new_status, :changed_by, CURRENT_TIMESTAMP, :remarks)
+                    """),
+                    {
+                        "quote_id": quote_id,
+                        "old_status": current_status,
+                        "new_status": next_status,
+                        "changed_by": user_id,
+                        "remarks": remarks
+                    }
+                )
             db.commit()
             
             return await QuoteService.get_quote(user_id, quote_id, db)
