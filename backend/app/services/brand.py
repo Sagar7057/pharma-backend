@@ -23,6 +23,11 @@ class BrandService:
         mrp: float,
         cost_price: float,
         default_margin: float,
+        hsn_code: Optional[str],
+        ptr: Optional[float],
+        pts: Optional[float],
+        is_nppa_controlled: bool,
+        nppa_margin_limit: Optional[float],
         therapeutic_category: str,
         salt_name: str,
         strength: str,
@@ -62,11 +67,12 @@ class BrandService:
                 text("""
                     INSERT INTO brands 
                     (user_id, brand_name, manufacturer, mrp, cost_price, 
-                     default_margin, therapeutic_category, salt_name, 
-                     strength, packing, gtin_code, is_active, created_at, updated_at)
+                     default_margin, hsn_code, ptr, pts, is_nppa_controlled, nppa_margin_limit,
+                     therapeutic_category, salt_name, strength, packing, gtin_code,
+                     is_active, created_at, updated_at)
                     VALUES (CAST(:user_id AS UUID), :brand_name, :manufacturer, :mrp, :cost_price,
-                           :default_margin, :therapeutic_category, :salt_name,
-                           :strength, :packing, :gtin_code, true, 
+                           :default_margin, :hsn_code, :ptr, :pts, :is_nppa_controlled, :nppa_margin_limit,
+                           :therapeutic_category, :salt_name, :strength, :packing, :gtin_code, true,
                            CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """),
                 {
@@ -76,6 +82,11 @@ class BrandService:
                     "mrp": mrp,
                     "cost_price": cost_price,
                     "default_margin": default_margin,
+                    "hsn_code": hsn_code,
+                    "ptr": ptr,
+                    "pts": pts,
+                    "is_nppa_controlled": is_nppa_controlled,
+                    "nppa_margin_limit": nppa_margin_limit,
                     "therapeutic_category": therapeutic_category,
                     "salt_name": salt_name,
                     "strength": strength,
@@ -113,9 +124,9 @@ class BrandService:
             result = db.execute(
                 text("""
                     SELECT id, brand_name, manufacturer, mrp, cost_price, 
-                           current_sell_price, default_margin, therapeutic_category,
-                           is_nppa_controlled, nppa_margin_limit, salt_name, 
-                           strength, packing, gtin_code, is_active, created_at, updated_at
+                           current_sell_price, default_margin, hsn_code, ptr, pts,
+                           therapeutic_category, is_nppa_controlled, nppa_margin_limit,
+                           salt_name, strength, packing, gtin_code, is_active, created_at, updated_at
                     FROM brands 
                     WHERE id = :brand_id AND user_id = CAST(:user_id AS UUID)
                 """),
@@ -134,16 +145,19 @@ class BrandService:
                 "cost_price": float(brand[4]),
                 "current_sell_price": float(brand[5]) if brand[5] else None,
                 "default_margin": float(brand[6]) if brand[6] else None,
-                "therapeutic_category": brand[7],
-                "is_nppa_controlled": brand[8],
-                "nppa_margin_limit": float(brand[9]) if brand[9] else None,
-                "salt_name": brand[10],
-                "strength": brand[11],
-                "packing": brand[12],
-                "gtin_code": brand[13],
-                "is_active": brand[14],
-                "created_at": brand[15],
-                "updated_at": brand[16]
+                "hsn_code": brand[7],
+                "ptr": float(brand[8]) if brand[8] is not None else None,
+                "pts": float(brand[9]) if brand[9] is not None else None,
+                "therapeutic_category": brand[10],
+                "is_nppa_controlled": bool(brand[11]) if brand[11] is not None else False,
+                "nppa_margin_limit": float(brand[12]) if brand[12] else None,
+                "salt_name": brand[13],
+                "strength": brand[14],
+                "packing": brand[15],
+                "gtin_code": brand[16],
+                "is_active": brand[17],
+                "created_at": brand[18],
+                "updated_at": brand[19]
             }
         except ValueError:
             raise
@@ -190,9 +204,9 @@ class BrandService:
             result = db.execute(
                 text(f"""
                     SELECT id, brand_name, manufacturer, mrp, cost_price, 
-                           current_sell_price, default_margin, therapeutic_category,
-                           is_nppa_controlled, salt_name, strength, packing, 
-                           gtin_code, is_active, created_at, updated_at
+                           current_sell_price, default_margin, hsn_code, ptr, pts,
+                           therapeutic_category, is_nppa_controlled, nppa_margin_limit,
+                           salt_name, strength, packing, gtin_code, is_active, created_at, updated_at
                     FROM brands 
                     {where_clause}
                     {order_by}
@@ -211,15 +225,19 @@ class BrandService:
                     "cost_price": float(row[4]),
                     "current_sell_price": float(row[5]) if row[5] else None,
                     "default_margin": float(row[6]) if row[6] else None,
-                    "therapeutic_category": row[7],
-                    "is_nppa_controlled": row[8],
-                    "salt_name": row[9],
-                    "strength": row[10],
-                    "packing": row[11],
-                    "gtin_code": row[12],
-                    "is_active": row[13],
-                    "created_at": row[14],
-                    "updated_at": row[15]
+                    "hsn_code": row[7],
+                    "ptr": float(row[8]) if row[8] is not None else None,
+                    "pts": float(row[9]) if row[9] is not None else None,
+                    "therapeutic_category": row[10],
+                    "is_nppa_controlled": bool(row[11]) if row[11] is not None else False,
+                    "nppa_margin_limit": float(row[12]) if row[12] is not None else None,
+                    "salt_name": row[13],
+                    "strength": row[14],
+                    "packing": row[15],
+                    "gtin_code": row[16],
+                    "is_active": row[17],
+                    "created_at": row[18],
+                    "updated_at": row[19]
                 })
             
             return {
@@ -321,6 +339,14 @@ class BrandService:
                     return default
                 return float(value)
 
+            def _to_bool(value: str, default: bool = False) -> bool:
+                if value is None:
+                    return default
+                value = str(value).strip().lower()
+                if value == "":
+                    return default
+                return value in {"1", "true", "yes", "y"}
+
             # Parse CSV
             csv_reader = csv.DictReader(StringIO(csv_content))
             if not csv_reader.fieldnames:
@@ -339,6 +365,17 @@ class BrandService:
                     strength = _pick(normalized, ["strength"])
                     packing = _pick(normalized, ["packing"])
                     gtin_code = _pick(normalized, ["gtin", "gtincode", "gtin_code", "gtin code"])
+                    hsn_code = _pick(normalized, ["hsn", "hsncode", "hsn_code", "hsn code"])
+                    ptr = _to_float(_pick(normalized, ["ptr"]), default=None)
+                    pts = _to_float(_pick(normalized, ["pts"]), default=None)
+                    is_nppa_controlled = _to_bool(
+                        _pick(normalized, ["isnppacontrolled", "is_nppa_controlled", "is nppa controlled", "nppa_controlled"]),
+                        default=False
+                    )
+                    nppa_margin_limit = _to_float(
+                        _pick(normalized, ["nppamarginlimit", "nppa_margin_limit", "nppa margin limit"]),
+                        default=None
+                    )
 
                     mrp = _to_float(_pick(normalized, ["mrp"]), default=0)
                     cost_price = _to_float(_pick(normalized, ["costprice", "cost_price", "cost price"]), default=0)
@@ -368,6 +405,11 @@ class BrandService:
                         failed += 1
                         continue
 
+                    if nppa_margin_limit is not None and (nppa_margin_limit < 0 or nppa_margin_limit > 100):
+                        errors.append({"row": row_num, "error": "NPPA Margin Limit must be between 0 and 100"})
+                        failed += 1
+                        continue
+
                     # Check for duplicate
                     result = db.execute(
                         text("""
@@ -393,11 +435,13 @@ class BrandService:
                         text("""
                             INSERT INTO brands 
                             (user_id, brand_name, manufacturer, mrp, cost_price, 
-                             default_margin, therapeutic_category, salt_name,
-                             strength, packing, gtin_code, is_active, created_at, updated_at)
+                             default_margin, hsn_code, ptr, pts, is_nppa_controlled, nppa_margin_limit,
+                             therapeutic_category, salt_name, strength, packing, gtin_code,
+                             is_active, created_at, updated_at)
                             VALUES (CAST(:user_id AS UUID), :brand_name, :manufacturer, :mrp, :cost_price,
-                                   :default_margin, :therapeutic_category, :salt_name,
-                                   :strength, :packing, :gtin_code, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                   :default_margin, :hsn_code, :ptr, :pts, :is_nppa_controlled, :nppa_margin_limit,
+                                   :therapeutic_category, :salt_name, :strength, :packing, :gtin_code,
+                                   true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                         """),
                         {
                             "user_id": user_id,
@@ -406,6 +450,11 @@ class BrandService:
                             "mrp": mrp,
                             "cost_price": cost_price,
                             "default_margin": default_margin,
+                            "hsn_code": hsn_code or None,
+                            "ptr": ptr,
+                            "pts": pts,
+                            "is_nppa_controlled": is_nppa_controlled,
+                            "nppa_margin_limit": nppa_margin_limit,
                             "therapeutic_category": therapeutic_category,
                             "salt_name": salt_name,
                             "strength": strength,
