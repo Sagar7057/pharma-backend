@@ -1,19 +1,18 @@
 """
-Brand routes/endpoints
-CRUD operations and CSV import
+Quote routes/endpoints
+CRUD operations for quotes
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Header, UploadFile, File, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import Optional
 import logging
 
 from app.database import get_db
-from app.services.brand import BrandService
-from app.services.auth import AuthService
-from app.schemas.brand import (
-    BrandCreate, BrandUpdate, BrandResponse, BrandListResponse,
-    CSVImportResponse, BrandSearchQuery
+from app.services.quote import QuoteService
+from app.schemas.quote import (
+    QuoteCreate, QuoteUpdate, QuoteResponse, QuoteListResponse,
+    QuoteDetailResponse, QuoteStatus
 )
 from app.routes.auth_routes import get_current_user
 
@@ -22,27 +21,44 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
-async def create_brand(
-    request: BrandCreate,
+async def create_quote(
+    request: QuoteCreate,
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    Create new brand
+    Create new quote with line items
+    
+    Request:
+    {
+      "customer_name": "ABC Hospital",
+      "customer_email": "contact@abchospital.com",
+      "customer_phone": "9876543210",
+      "customer_type_id": 1,
+      "validity_days": 7,
+      "line_items": [
+        {
+          "brand_id": 1,
+          "quantity": 100,
+          "margin_percentage": 15
+        }
+      ]
+    }
     """
     try:
-        result = await BrandService.create_brand(
+        result = await QuoteService.create_quote(
             user_id=current_user["user_id"],
-            brand_name=request.brand_name,
-            manufacturer=request.manufacturer or "",
-            mrp=request.mrp,
-            cost_price=request.cost_price,
-            default_margin=request.default_margin or 0,
-            therapeutic_category=request.therapeutic_category or "",
-            salt_name=request.salt_name or "",
-            strength=request.strength or "",
-            packing=request.packing or "",
-            gtin_code=request.gtin_code or "",
+            customer_name=request.customer_name,
+            customer_email=request.customer_email,
+            customer_phone=request.customer_phone,
+            customer_type_id=request.customer_type_id,
+            customer_id=request.customer_id,
+            seller_state_code=request.seller_state_code,
+            place_of_supply_state_code=request.place_of_supply_state_code,
+            price_basis=request.price_basis.value if request.price_basis else None,
+            notes=request.notes,
+            line_items=[item.dict() for item in request.line_items],
+            validity_days=request.validity_days or 7,
             db=db
         )
         
@@ -50,36 +66,34 @@ async def create_brand(
             "success": True,
             "data": result
         }
-    
     except ValueError as e:
-        logger.warning(f"Validation error: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
-        logger.error(f"Error creating brand: {e}")
+        logger.error(f"Error creating quote: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create brand"
+            detail="Failed to create quote"
         )
 
 @router.get("/", status_code=status.HTTP_200_OK)
-async def list_brands(
-    search: Optional[str] = Query(None),
+async def list_quotes(
+    status_filter: Optional[str] = Query(None, alias="status"),
+    customer_name: Optional[str] = Query(None),
     sort_by: Optional[str] = Query(None),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """
-    List brands with search, sort, and pagination
-    """
+    """List quotes with filtering and pagination"""
     try:
-        result = await BrandService.list_brands(
+        result = await QuoteService.list_quotes(
             user_id=current_user["user_id"],
-            search=search,
+            status=status_filter,
+            customer_name=customer_name,
             sort_by=sort_by,
             limit=limit,
             offset=offset,
@@ -90,27 +104,24 @@ async def list_brands(
             "success": True,
             "data": result
         }
-    
     except Exception as e:
-        logger.error(f"Error listing brands: {e}")
+        logger.error(f"Error listing quotes: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to list brands"
+            detail="Failed to list quotes"
         )
 
-@router.get("/{brand_id}", status_code=status.HTTP_200_OK)
-async def get_brand(
-    brand_id: int,
+@router.get("/{quote_id}", status_code=status.HTTP_200_OK)
+async def get_quote(
+    quote_id: int,
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """
-    Get single brand by ID
-    """
+    """Get single quote with line items"""
     try:
-        result = await BrandService.get_brand(
+        result = await QuoteService.get_quote(
             user_id=current_user["user_id"],
-            brand_id=brand_id,
+            quote_id=quote_id,
             db=db
         )
         
@@ -118,40 +129,34 @@ async def get_brand(
             "success": True,
             "data": result
         }
-    
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e)
         )
     except Exception as e:
-        logger.error(f"Error getting brand: {e}")
+        logger.error(f"Error getting quote: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get brand"
+            detail="Failed to get quote"
         )
 
-@router.put("/{brand_id}", status_code=status.HTTP_200_OK)
-async def update_brand(
-    brand_id: int,
-    request: BrandUpdate,
+@router.put("/{quote_id}", status_code=status.HTTP_200_OK)
+async def update_quote_status(
+    quote_id: int,
+    request: QuoteUpdate,
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """
-    Update brand
-    """
+    """Update quote status"""
     try:
-        # Only include non-None fields
-        update_data = {}
-        for key, value in request.dict().items():
-            if value is not None:
-                update_data[key] = value
+        if not request.status:
+            raise ValueError("Status is required")
         
-        result = await BrandService.update_brand(
+        result = await QuoteService.update_quote_status(
             user_id=current_user["user_id"],
-            brand_id=brand_id,
-            update_data=update_data,
+            quote_id=quote_id,
+            status=request.status,
             db=db
         )
         
@@ -159,89 +164,44 @@ async def update_brand(
             "success": True,
             "data": result
         }
-    
     except ValueError as e:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
-        logger.error(f"Error updating brand: {e}")
+        logger.error(f"Error updating quote: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update brand"
+            detail="Failed to update quote"
         )
 
-@router.delete("/{brand_id}", status_code=status.HTTP_200_OK)
-async def delete_brand(
-    brand_id: int,
+@router.delete("/{quote_id}", status_code=status.HTTP_200_OK)
+async def delete_quote(
+    quote_id: int,
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """
-    Delete brand (soft delete)
-    """
+    """Delete quote (only draft quotes)"""
     try:
-        await BrandService.delete_brand(
+        await QuoteService.delete_quote(
             user_id=current_user["user_id"],
-            brand_id=brand_id,
+            quote_id=quote_id,
             db=db
         )
         
         return {
             "success": True,
-            "message": "Brand deleted successfully"
+            "message": "Quote deleted"
         }
-    
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
     except Exception as e:
-        logger.error(f"Error deleting brand: {e}")
+        logger.error(f"Error deleting quote: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete brand"
-        )
-
-@router.post("/import", status_code=status.HTTP_200_OK)
-async def import_brands_csv(
-    file: UploadFile = File(...),
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Import brands from CSV file
-    
-    Expected CSV format:
-    Brand,Manufacturer,MRP,CostPrice,DefaultMargin,TherapeuticCategory,SaltName,Strength,Packing,GTINCode
-    Amoxicillin 500mg,Cipla,35.00,30.00,15,Antibiotic,Amoxicillin,500mg,10x10,8901234567890
-    """
-    try:
-        # Validate file type
-        if not file.filename.endswith('.csv'):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Only CSV files are supported"
-            )
-        
-        # Read file content
-        content = await file.read()
-        csv_content = content.decode('utf-8-sig')
-        
-        # Import
-        result = await BrandService.import_csv(
-            user_id=current_user["user_id"],
-            csv_content=csv_content,
-            db=db
-        )
-        
-        return {
-            "success": True,
-            "data": result
-        }
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error importing CSV: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to import CSV"
+            detail="Failed to delete quote"
         )
