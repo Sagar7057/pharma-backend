@@ -20,6 +20,7 @@ class PricingEngineService:
         brand_id: int,
         customer_type_id: Optional[int],
         quantity: int,
+        price_basis: Optional[str],
         db: Session
     ) -> Dict[str, Any]:
         """
@@ -37,7 +38,7 @@ class PricingEngineService:
             # Get brand details
             brand_result = db.execute(
                 text("""
-                    SELECT cost_price, mrp, is_nppa_controlled, nppa_margin_limit
+                    SELECT cost_price, mrp, ptr, pts, is_nppa_controlled, nppa_margin_limit
                     FROM brands 
                     WHERE id = :brand_id AND user_id = :user_id AND is_active = true
                 """),
@@ -48,7 +49,15 @@ class PricingEngineService:
             if not brand:
                 raise ValueError("Brand not found")
             
-            cost_price, mrp, is_nppa_controlled, nppa_margin_limit = brand
+            cost_price, mrp, ptr, pts, is_nppa_controlled, nppa_margin_limit = brand
+            selected_basis = (price_basis or "MRP").upper()
+            cap_price = mrp
+            if selected_basis == "PTR" and ptr is not None:
+                cap_price = ptr
+            elif selected_basis == "PTS" and pts is not None:
+                cap_price = pts
+            else:
+                selected_basis = "MRP"
             
             # Try to get custom pricing rule
             rule = None
@@ -76,8 +85,12 @@ class PricingEngineService:
             # Calculate sell price
             margin_percentage = 0
             volume_discount = 0
-            
+            margin_source = "brand_default"
+            applied_rule = False
+             
             if rule:
+                applied_rule = True
+                margin_source = "pricing_rule"
                 # Use custom rule
                 if rule[1]:  # sell_price is set
                     sell_price = rule[1]
@@ -94,6 +107,7 @@ class PricingEngineService:
                         volume_discount = rule[2] or 0
             else:
                 # Use customer type default margin or brand default
+                customer_type_margin_found = False
                 if customer_type_id:
                     type_result = db.execute(
                         text("""
@@ -103,21 +117,27 @@ class PricingEngineService:
                         {"customer_type_id": customer_type_id, "user_id": user_id}
                     )
                     type_row = type_result.fetchone()
-                    if type_row:
+                    if type_row and type_row[0] is not None:
                         margin_percentage = type_row[0] or 0
-                
-                # Fallback to brand default margin
-                brand_margin_result = db.execute(
-                    text("""
-                        SELECT default_margin FROM brands 
-                        WHERE id = :brand_id AND user_id = :user_id
-                    """),
-                    {"brand_id": brand_id, "user_id": user_id}
-                )
-                brand_margin_row = brand_margin_result.fetchone()
-                if brand_margin_row and brand_margin_row[0]:
-                    margin_percentage = brand_margin_row[0]
-                
+                        margin_source = "customer_type_default"
+                        customer_type_margin_found = True
+                 
+                # Fallback to brand default margin only when customer type margin is not available
+                if not customer_type_margin_found:
+                    brand_margin_result = db.execute(
+                        text("""
+                            SELECT default_margin FROM brands 
+                            WHERE id = :brand_id AND user_id = :user_id
+                        """),
+                        {"brand_id": brand_id, "user_id": user_id}
+                    )
+                    brand_margin_row = brand_margin_result.fetchone()
+                    if brand_margin_row and brand_margin_row[0] is not None:
+                        margin_percentage = brand_margin_row[0]
+                        margin_source = "brand_default"
+                    else:
+                        margin_source = "no_default"
+                 
                 # Calculate base sell price
                 sell_price = cost_price * (1 + margin_percentage / 100)
             
@@ -125,8 +145,10 @@ class PricingEngineService:
             if volume_discount > 0:
                 sell_price = sell_price * (1 - volume_discount / 100)
             
-            # Cap at MRP
-            sell_price = min(sell_price, mrp)
+            # Cap at selected price basis
+            uncapped_price = sell_price
+            sell_price = min(sell_price, cap_price)
+            capped_by_basis = uncapped_price > cap_price
             
             # Recalculate margin based on final sell price
             final_margin_percentage = ((sell_price - cost_price) / cost_price * 100) if cost_price > 0 else 0
@@ -148,6 +170,10 @@ class PricingEngineService:
                 "brand_id": brand_id,
                 "cost_price": float(cost_price),
                 "mrp": float(mrp),
+                "ptr": float(ptr) if ptr is not None else None,
+                "pts": float(pts) if pts is not None else None,
+                "price_basis": selected_basis,
+                "cap_price": float(cap_price),
                 "unit_price": float(sell_price),
                 "quantity": quantity,
                 "margin_percentage": float(final_margin_percentage),
@@ -155,6 +181,10 @@ class PricingEngineService:
                 "total_margin": float(margin_earned),
                 "total_amount": float(total_amount),
                 "volume_discount": volume_discount,
+                "applied_rule": applied_rule,
+                "margin_source": margin_source,
+                "uncapped_price": float(uncapped_price),
+                "capped_by_basis": bool(capped_by_basis),
                 "nppa_controlled": is_nppa_controlled,
                 "nppa_compliant": nppa_compliant,
                 "nppa_message": nppa_message
@@ -284,6 +314,7 @@ class PricingEngineService:
                 brand_id=brand_id,
                 customer_type_id=customer_type_id,
                 quantity=quantity,
+                price_basis="MRP",
                 db=db
             )
 
