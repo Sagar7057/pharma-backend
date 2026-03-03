@@ -195,14 +195,31 @@ async def calculate_price(
     }
     """
     try:
-        result = await PricingEngineService.calculate_price(
-            user_id=current_user["user_id"],
-            brand_id=request.brand_id,
-            customer_type_id=request.customer_type_id,
-            quantity=request.quantity,
-            price_basis=request.price_basis,
-            db=db
-        )
+        try:
+            result = await PricingEngineService.calculate_price(
+                user_id=current_user["user_id"],
+                brand_id=request.brand_id,
+                customer_type_id=request.customer_type_id,
+                quantity=request.quantity,
+                price_basis=request.price_basis,
+                db=db
+            )
+        except TypeError as te:
+            # Backward compatibility for stale runtime code paths
+            # where calculate_price() does not yet accept price_basis.
+            if "unexpected keyword argument 'price_basis'" not in str(te):
+                raise
+            logger.warning(
+                "calculate_price() missing price_basis argument in loaded service; "
+                "falling back to legacy signature."
+            )
+            result = await PricingEngineService.calculate_price(
+                user_id=current_user["user_id"],
+                brand_id=request.brand_id,
+                customer_type_id=request.customer_type_id,
+                quantity=request.quantity,
+                db=db
+            )
         
         return {
             "success": True,
