@@ -210,8 +210,11 @@ async def import_brands_csv(
     Import brands from CSV file
     
     Expected CSV format:
-    Brand,Manufacturer,MRP,CostPrice,DefaultMargin,TherapeuticCategory,SaltName,Strength,Packing,GTINCode
-    Amoxicillin 500mg,Cipla,35.00,30.00,15,Antibiotic,Amoxicillin,500mg,10x10,8901234567890
+    Brand,Manufacturer,MRP,CostPrice,TargetMargin,Strength,Packing
+    Amoxicillin 500mg,Cipla,35.00,30.00,15,500mg,10x10
+
+    Backward compatible headers also supported:
+    DefaultMargin, TherapeuticCategory, SaltName, GTINCode
     """
     try:
         # Validate file type
