@@ -200,6 +200,7 @@ async def calculate_price(
             brand_id=request.brand_id,
             customer_type_id=request.customer_type_id,
             quantity=request.quantity,
+            price_basis=request.price_basis,
             db=db
         )
         
