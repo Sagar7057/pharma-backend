@@ -38,6 +38,11 @@ async def create_brand(
             mrp=request.mrp,
             cost_price=request.cost_price,
             default_margin=request.default_margin or 0,
+            hsn_code=request.hsn_code or None,
+            ptr=request.ptr,
+            pts=request.pts,
+            is_nppa_controlled=bool(request.is_nppa_controlled) if request.is_nppa_controlled is not None else False,
+            nppa_margin_limit=request.nppa_margin_limit,
             therapeutic_category=request.therapeutic_category or "",
             salt_name=request.salt_name or "",
             strength=request.strength or "",
@@ -210,8 +215,8 @@ async def import_brands_csv(
     Import brands from CSV file
     
     Expected CSV format:
-    Brand,Manufacturer,MRP,CostPrice,TargetMargin,Strength,Packing
-    Amoxicillin 500mg,Cipla,35.00,30.00,15,500mg,10x10
+    Brand,Manufacturer,MRP,CostPrice,TargetMargin,Strength,Packing,HSNCode,PTR,PTS,IsNPPAControlled,NPPAMarginLimit
+    Amoxicillin 500mg,Cipla,35.00,30.00,15,500mg,10x10,3004,31.00,29.50,false,
 
     Backward compatible headers also supported:
     DefaultMargin, TherapeuticCategory, SaltName, GTINCode
