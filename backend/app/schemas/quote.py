@@ -121,6 +121,7 @@ class QuoteUpdate(BaseModel):
     customer_phone: Optional[str] = None
     notes: Optional[str] = Field(None, max_length=1000)
     status: Optional[QuoteStatus] = None
+    remarks: Optional[str] = Field(None, max_length=1000)
 
 class QuoteResponse(BaseModel):
     """Quote response"""
