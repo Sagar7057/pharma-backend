@@ -52,6 +52,7 @@ class PriceCalculationRequest(BaseModel):
     brand_id: int
     customer_type_id: Optional[int] = None
     quantity: int = Field(..., gt=0)
+    price_basis: Optional[str] = Field("MRP", description="MRP, PTR, or PTS")
     current_unit_price: Optional[float] = Field(None, gt=0)
     channel: Optional[str] = None
     region_code: Optional[str] = None
