@@ -111,6 +111,30 @@ async def list_quotes(
             detail="Failed to list quotes"
         )
 
+@router.get("/stats", status_code=status.HTTP_200_OK)
+async def get_quote_stats(
+    customer_name: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get quote summary counts and values for dashboard cards."""
+    try:
+        result = await QuoteService.get_quote_stats(
+            user_id=current_user["user_id"],
+            customer_name=customer_name,
+            db=db
+        )
+        return {
+            "success": True,
+            "data": result
+        }
+    except Exception as e:
+        logger.error(f"Error getting quote stats: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get quote stats"
+        )
+
 @router.get("/{quote_id}", status_code=status.HTTP_200_OK)
 async def get_quote(
     quote_id: int,
@@ -157,6 +181,7 @@ async def update_quote_status(
             user_id=current_user["user_id"],
             quote_id=quote_id,
             status=request.status,
+            remarks=request.remarks,
             db=db
         )
         
