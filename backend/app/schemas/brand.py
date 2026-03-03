@@ -14,6 +14,11 @@ class BrandBase(BaseModel):
     mrp: float = Field(..., gt=0)
     cost_price: float = Field(..., gt=0)
     default_margin: Optional[float] = Field(None, ge=0, le=100)
+    hsn_code: Optional[str] = Field(None, min_length=4, max_length=8)
+    ptr: Optional[float] = Field(None, ge=0)
+    pts: Optional[float] = Field(None, ge=0)
+    is_nppa_controlled: Optional[bool] = False
+    nppa_margin_limit: Optional[float] = Field(None, ge=0, le=100)
     therapeutic_category: Optional[str] = Field(None, max_length=100)
     salt_name: Optional[str] = Field(None, max_length=255)
     strength: Optional[str] = Field(None, max_length=100)
@@ -45,6 +50,11 @@ class BrandUpdate(BaseModel):
     mrp: Optional[float] = Field(None, gt=0)
     cost_price: Optional[float] = Field(None, gt=0)
     default_margin: Optional[float] = Field(None, ge=0, le=100)
+    hsn_code: Optional[str] = Field(None, min_length=4, max_length=8)
+    ptr: Optional[float] = Field(None, ge=0)
+    pts: Optional[float] = Field(None, ge=0)
+    is_nppa_controlled: Optional[bool] = None
+    nppa_margin_limit: Optional[float] = Field(None, ge=0, le=100)
     therapeutic_category: Optional[str] = Field(None, max_length=100)
     salt_name: Optional[str] = Field(None, max_length=255)
     strength: Optional[str] = Field(None, max_length=100)
