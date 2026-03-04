@@ -14,6 +14,21 @@ logger = logging.getLogger(__name__)
 
 class AnalyticsService:
     """Analytics service for business metrics and insights"""
+
+    @staticmethod
+    def _column_exists(db: Session, table_name: str, column_name: str) -> bool:
+        row = db.execute(
+            text("""
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = :table_name
+                  AND column_name = :column_name
+                LIMIT 1
+            """),
+            {"table_name": table_name, "column_name": column_name}
+        ).fetchone()
+        return bool(row)
     
     @staticmethod
     def _get_date_range(range_type: str, custom_from: Optional[str] = None, custom_to: Optional[str] = None) -> tuple:
@@ -106,6 +121,46 @@ class AnalyticsService:
             # Conversion rate (accepted / sent)
             sent = status_breakdown.get("sent", 0) + status_breakdown.get("accepted", 0) + status_breakdown.get("rejected", 0)
             conversion_rate = (status_breakdown.get("accepted", 0) / sent * 100) if sent > 0 else 0
+
+            # Worst performing SKUs by realized margin %
+            # Prefer finalized pipeline statuses to represent business impact.
+            margin_col = "qli.margin_amount" if AnalyticsService._column_exists(db, "quote_line_items", "margin_amount") else "qli.margin_earned"
+            worst_result = db.execute(
+                text(f"""
+                    SELECT
+                        qli.brand_id,
+                        b.brand_name,
+                        COALESCE(SUM(qli.quantity), 0) AS total_qty,
+                        COALESCE(SUM(qli.line_total), 0) AS total_revenue,
+                        COALESCE(SUM({margin_col}), 0) AS total_margin,
+                        CASE
+                            WHEN COALESCE(SUM(qli.line_total), 0) > 0
+                            THEN (COALESCE(SUM({margin_col}), 0) / COALESCE(SUM(qli.line_total), 0)) * 100
+                            ELSE 0
+                        END AS margin_pct
+                    FROM quote_line_items qli
+                    JOIN quotes q ON qli.quote_id = q.id
+                    JOIN brands b ON qli.brand_id = b.id
+                    WHERE q.user_id = :user_id
+                      AND q.status IN ('sent', 'viewed', 'accepted')
+                    GROUP BY qli.brand_id, b.brand_name
+                    HAVING COALESCE(SUM(qli.line_total), 0) > 0
+                    ORDER BY margin_pct ASC, total_margin ASC
+                    LIMIT 5
+                """),
+                {"user_id": user_id}
+            ).fetchall()
+
+            worst_skus = []
+            for row in worst_result:
+                worst_skus.append({
+                    "brand_id": int(row[0]),
+                    "brand_name": row[1],
+                    "total_qty": int(row[2] or 0),
+                    "total_revenue": float(row[3] or 0),
+                    "total_margin": float(row[4] or 0),
+                    "margin_pct": float(row[5] or 0)
+                })
             
             return {
                 "total_revenue": float(total_revenue),
@@ -117,7 +172,8 @@ class AnalyticsService:
                 "active_brands": int(active_brands),
                 "pending_quotes": int(status_breakdown.get("draft", 0) + status_breakdown.get("sent", 0)),
                 "expired_quotes": int(status_breakdown.get("expired", 0)),
-                "status_breakdown": status_breakdown
+                "status_breakdown": status_breakdown,
+                "worst_skus": worst_skus
             }
         except Exception as e:
             logger.error(f"Failed to get dashboard metrics: {e}")
