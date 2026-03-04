@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import routes
-from app.routes import auth_routes, brand_routes, pricing_routes, quote_routes, analytics_routes, export_routes, settings_routes
+from app.routes import auth_routes, brand_routes, pricing_routes, quote_routes, analytics_routes, export_routes, settings_routes, lead_routes
 
 # Configure logging
 logging.basicConfig(
@@ -172,6 +172,12 @@ app.include_router(
     settings_routes.router,
     prefix="/api/settings",
     tags=["Settings"]
+)
+
+app.include_router(
+    lead_routes.router,
+    prefix="/api",
+    tags=["Leads"]
 )
 
 # 404 handler
